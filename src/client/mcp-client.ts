@@ -5,13 +5,22 @@ import type {
   Resource,
   JSONRPCRequest,
   JSONRPCResponse,
-  CallToolRequest,
-  ReadResourceRequest,
+  ServerOnlineNotification,
+  DisconnectedNotification,
+} from '../types.js'
+import {
+  ServerOnlineNotificationSchema,
+  DisconnectedNotificationSchema,
+  CallToolRequestSchema,
+  ReadResourceRequestSchema,
 } from '../types.js'
 import { UniversalMqttAdapter } from '../shared/mqtt-adapter.js'
 import { createRequest, generateId, McpError } from '../shared/utils.js'
 
 export interface ServerInfo {
+  serverId: string
+  serverName: string
+  description: string
   name: string
   version: string
   capabilities: {
@@ -27,15 +36,23 @@ export interface ServerInfo {
       listChanged?: boolean
     }
   }
-  topics: {
-    request: string
-    response: string
+  rbac?: {
+    roles: Array<{
+      name: string
+      description: string
+      allowed_methods: string[]
+      allowed_tools: 'all' | string[]
+      allowed_resources: 'all' | string[]
+    }>
   }
 }
 
 export class McpMqttClient extends EventEmitter {
   private mqttAdapter: UniversalMqttAdapter
   private config: McpMqttClientConfig
+  private mcpClientId: string
+  private serverNameFilter: string // Topic filter for server discovery
+
   private pendingRequests = new Map<
     string | number,
     {
@@ -44,24 +61,66 @@ export class McpMqttClient extends EventEmitter {
       timeout: NodeJS.Timeout
     }
   >()
-  private discoveredServers = new Map<string, ServerInfo>()
-  private connectedServers = new Map<string, ServerInfo>()
+
+  private discoveredServers = new Map<string, ServerInfo>() // serverId -> ServerInfo
+  private connectedServers = new Map<string, ServerInfo>() // serverId -> ServerInfo
 
   constructor(config: McpMqttClientConfig) {
     super()
     this.config = config
+
+    // Generate unique client ID for each initialization
+    this.mcpClientId = config.mqtt.clientId || `mcp-client-${generateId()}`
+    config.mqtt.clientId = this.mcpClientId
+
+    // Default server name filter (can be overridden by broker)
+    this.serverNameFilter = '#' // Subscribe to all servers by default
+
     this.mqttAdapter = new UniversalMqttAdapter(config.mqtt)
+
+    // Set up will message for unexpected disconnection
+    const disconnectedNotification: DisconnectedNotification = {
+      jsonrpc: '2.0',
+      method: 'notifications/disconnected',
+    }
+
+    config.mqtt.will = {
+      topic: `$mcp-client/presence/${this.mcpClientId}`,
+      payload: JSON.stringify(disconnectedNotification),
+      qos: 1,
+      retain: false,
+    }
   }
 
   async connect(): Promise<void> {
     try {
+      // Set MQTT 5.0 user properties
+      const userProperties = {
+        'MCP-COMPONENT-TYPE': 'mcp-client',
+        'MCP-META': JSON.stringify({
+          version: this.config.clientInfo.version,
+          implementation: 'mcp-typescript-sdk',
+          capabilities: this.config.capabilities,
+        }),
+      }
+
+      if (!this.config.mqtt.properties) {
+        this.config.mqtt.properties = {}
+      }
+      this.config.mqtt.properties.userProperties = userProperties
+
       await this.mqttAdapter.connect()
 
-      // Subscribe to server discovery topic
-      await this.mqttAdapter.subscribe('mcp/servers/+/responses')
+      // Check for broker-suggested server name filters in CONNACK
+      // This would be handled by the MQTT adapter if it supports MQTT 5.0 properties
 
-      this.mqttAdapter.on('message', (topic, payload) => {
-        this.handleMessage(topic, payload.toString())
+      // Subscribe to server discovery and capability topics
+      await this.mqttAdapter.subscribe(`$mcp-server/presence/+/${this.serverNameFilter}`)
+      await this.mqttAdapter.subscribe(`$mcp-server/capability/+/${this.serverNameFilter}`)
+      await this.mqttAdapter.subscribe(`$mcp-rpc/${this.mcpClientId}/+/${this.serverNameFilter}`, { nl: true })
+
+      this.mqttAdapter.on('message', (topic, payload, packet) => {
+        this.handleMessage(topic, payload.toString(), packet)
       })
 
       this.mqttAdapter.on('error', (error) => {
@@ -79,10 +138,43 @@ export class McpMqttClient extends EventEmitter {
   }
 
   async disconnect(): Promise<void> {
-    // Cleanup pending requests
-    for (const [id, pending] of this.pendingRequests) {
-      clearTimeout(pending.timeout)
-      pending.reject(new Error('Client disconnected'))
+    // Send disconnected notification to all connected servers
+    for (const [serverId, server] of this.connectedServers) {
+      const disconnectedNotification: DisconnectedNotification = {
+        jsonrpc: '2.0',
+        method: 'notifications/disconnected',
+      }
+
+      const rpcTopic = `$mcp-rpc/${this.mcpClientId}/${serverId}/${server.serverName}`
+      await this.mqttAdapter.publish(rpcTopic, JSON.stringify(disconnectedNotification), {
+        userProperties: {
+          'MCP-COMPONENT-TYPE': 'mcp-client',
+          'MCP-MQTT-CLIENT-ID': this.mcpClientId,
+        },
+      })
+    }
+
+    // Send client presence disconnection
+    const disconnectedNotification: DisconnectedNotification = {
+      jsonrpc: '2.0',
+      method: 'notifications/disconnected',
+    }
+
+    await this.mqttAdapter.publish(
+      `$mcp-client/presence/${this.mcpClientId}`,
+      JSON.stringify(disconnectedNotification),
+      {
+        userProperties: {
+          'MCP-COMPONENT-TYPE': 'mcp-client',
+          'MCP-MQTT-CLIENT-ID': this.mcpClientId,
+        },
+      },
+    )
+
+    // Clear pending requests
+    for (const [, request] of this.pendingRequests) {
+      clearTimeout(request.timeout)
+      request.reject(new Error('Client disconnected'))
     }
     this.pendingRequests.clear()
 
@@ -91,213 +183,247 @@ export class McpMqttClient extends EventEmitter {
   }
 
   private async discoverServers(): Promise<void> {
-    // This is a simplified discovery mechanism
-    // In a real implementation, you might use MQTT service discovery or a registry
-    this.emit('discovery:started')
+    // Servers will publish their presence when they come online
+    // We're already subscribed to the presence topic
   }
 
-  async connectToServer(serverName: string): Promise<ServerInfo> {
-    const server = this.discoveredServers.get(serverName)
-    if (!server) {
-      throw new Error(`Server not found: ${serverName}`)
+  async initializeServer(serverId: string): Promise<ServerInfo> {
+    const serverInfo = this.discoveredServers.get(serverId)
+    if (!serverInfo) {
+      throw new Error(`Server not discovered: ${serverId}`)
     }
 
-    try {
-      // Send initialize request
-      const initRequest = createRequest('initialize', {
-        protocolVersion: '2024-11-05',
-        capabilities: {
-          roots: this.config.capabilities?.roots ?? {},
-          sampling: this.config.capabilities?.sampling ?? {},
+    const initializeRequest = createRequest('initialize', {
+      protocolVersion: '2024-11-05',
+      capabilities: {
+        roots: {
+          listChanged: this.config.capabilities?.roots?.listChanged ?? false,
         },
-        clientInfo: this.config.clientInfo,
-      })
-
-      const response = await this.sendRequest(server.topics.request, initRequest)
-
-      if (response.error) {
-        throw new McpError(response.error.code, response.error.message, response.error.data)
-      }
-
-      // Update server info with initialization response
-      const updatedServer: ServerInfo = {
-        ...server,
-        ...response.result,
-      }
-
-      this.connectedServers.set(serverName, updatedServer)
-      this.emit('server:connected', updatedServer)
-
-      return updatedServer
-    } catch (error) {
-      this.emit('server:error', serverName, error)
-      throw error
-    }
-  }
-
-  async listTools(serverName: string): Promise<Tool[]> {
-    const server = this.connectedServers.get(serverName)
-    if (!server) {
-      throw new Error(`Not connected to server: ${serverName}`)
-    }
-
-    const request = createRequest('tools/list')
-    const response = await this.sendRequest(server.topics.request, request)
-
-    if (response.error) {
-      throw new McpError(response.error.code, response.error.message, response.error.data)
-    }
-
-    return response.result?.tools ?? []
-  }
-
-  async callTool(
-    serverName: string,
-    toolName: string,
-    args?: Record<string, any>,
-  ): Promise<{
-    content: Array<{
-      type: string
-      text?: string
-      data?: string
-      mimeType?: string
-    }>
-    isError?: boolean
-  }> {
-    const server = this.connectedServers.get(serverName)
-    if (!server) {
-      throw new Error(`Not connected to server: ${serverName}`)
-    }
-
-    const request: CallToolRequest = {
-      jsonrpc: '2.0',
-      id: generateId(),
-      method: 'tools/call',
-      params: {
-        name: toolName,
-        ...(args && { arguments: args }),
+        sampling: this.config.capabilities?.sampling ?? {},
       },
+      clientInfo: this.config.clientInfo,
+    })
+
+    // Send initialize request to server control topic
+    const controlTopic = `$mcp-server/${serverId}/${serverInfo.serverName}`
+    const response = await this.sendRequest(controlTopic, initializeRequest, serverId)
+
+    // Update server info with initialization response
+    const updatedServerInfo: ServerInfo = {
+      ...serverInfo,
+      name: response.result.serverInfo.name,
+      version: response.result.serverInfo.version,
+      capabilities: response.result.capabilities,
     }
 
-    const response = await this.sendRequest(server.topics.request, request)
+    this.connectedServers.set(serverId, updatedServerInfo)
 
-    if (response.error) {
-      throw new McpError(response.error.code, response.error.message, response.error.data)
+    // Send initialized notification
+    const initializedNotification = {
+      jsonrpc: '2.0',
+      method: 'notifications/initialized',
     }
 
+    const rpcTopic = `$mcp-rpc/${this.mcpClientId}/${serverId}/${serverInfo.serverName}`
+    await this.mqttAdapter.publish(rpcTopic, JSON.stringify(initializedNotification), {
+      userProperties: {
+        'MCP-COMPONENT-TYPE': 'mcp-client',
+        'MCP-MQTT-CLIENT-ID': this.mcpClientId,
+      },
+    })
+
+    this.emit('serverInitialized', updatedServerInfo)
+    return updatedServerInfo
+  }
+
+  async listTools(serverId: string): Promise<Tool[]> {
+    const request = createRequest('tools/list', {})
+    const response = await this.sendRpcRequest(serverId, request)
+    return response.result.tools
+  }
+
+  async callTool(serverId: string, name: string, args?: Record<string, any>): Promise<any> {
+    const request = createRequest('tools/call', {
+      name,
+      arguments: args,
+    })
+
+    // Validate request format according to MCP specification
+    CallToolRequestSchema.parse(request)
+
+    const response = await this.sendRpcRequest(serverId, request)
     return response.result
   }
 
-  async listResources(serverName: string): Promise<Resource[]> {
-    const server = this.connectedServers.get(serverName)
-    if (!server) {
-      throw new Error(`Not connected to server: ${serverName}`)
-    }
-
-    const request = createRequest('resources/list')
-    const response = await this.sendRequest(server.topics.request, request)
-
-    if (response.error) {
-      throw new McpError(response.error.code, response.error.message, response.error.data)
-    }
-
-    return response.result?.resources ?? []
+  async listResources(serverId: string): Promise<Resource[]> {
+    const request = createRequest('resources/list', {})
+    const response = await this.sendRpcRequest(serverId, request)
+    return response.result.resources
   }
 
-  async readResource(
-    serverName: string,
-    uri: string,
-  ): Promise<{
-    contents: Array<{
-      uri: string
-      mimeType?: string
-      text?: string
-      blob?: string
-    }>
-  }> {
-    const server = this.connectedServers.get(serverName)
-    if (!server) {
-      throw new Error(`Not connected to server: ${serverName}`)
-    }
+  async readResource(serverId: string, uri: string): Promise<any> {
+    const request = createRequest('resources/read', { uri })
 
-    const request: ReadResourceRequest = {
-      jsonrpc: '2.0',
-      id: generateId(),
-      method: 'resources/read',
-      params: {
-        uri,
-      },
-    }
+    // Validate request format according to MCP specification
+    ReadResourceRequestSchema.parse(request)
 
-    const response = await this.sendRequest(server.topics.request, request)
-
-    if (response.error) {
-      throw new McpError(response.error.code, response.error.message, response.error.data)
-    }
-
+    const response = await this.sendRpcRequest(serverId, request)
     return response.result
   }
 
-  private async sendRequest(topic: string, request: JSONRPCRequest): Promise<JSONRPCResponse> {
+  async ping(serverId: string): Promise<boolean> {
+    const request = createRequest('ping', {})
+    const response = await this.sendRpcRequest(serverId, request)
+    return response.result.pong === true
+  }
+
+  private async sendRpcRequest(serverId: string, request: JSONRPCRequest): Promise<JSONRPCResponse> {
+    const serverInfo = this.connectedServers.get(serverId)
+    if (!serverInfo) {
+      throw new Error(`Server not connected: ${serverId}`)
+    }
+
+    const rpcTopic = `$mcp-rpc/${this.mcpClientId}/${serverId}/${serverInfo.serverName}`
+    return this.sendRequest(rpcTopic, request, serverId)
+  }
+
+  private async sendRequest(topic: string, request: JSONRPCRequest, serverId?: string): Promise<JSONRPCResponse> {
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         this.pendingRequests.delete(request.id)
         reject(new Error(`Request timeout: ${request.method}`))
-      }, 30000)
+      }, 30000) // 30 second timeout
 
-      this.pendingRequests.set(request.id, {
-        resolve,
-        reject,
-        timeout,
-      })
+      this.pendingRequests.set(request.id, { resolve, reject, timeout })
 
-      this.mqttAdapter.publish(topic, JSON.stringify(request)).catch((error) => {
-        this.pendingRequests.delete(request.id)
-        clearTimeout(timeout)
-        reject(error)
-      })
+      this.mqttAdapter
+        .publish(topic, JSON.stringify(request), {
+          userProperties: {
+            'MCP-COMPONENT-TYPE': 'mcp-client',
+            'MCP-MQTT-CLIENT-ID': this.mcpClientId,
+          },
+        })
+        .catch((error) => {
+          this.pendingRequests.delete(request.id)
+          clearTimeout(timeout)
+          reject(error)
+        })
     })
   }
 
-  private handleMessage(topic: string, message: string): void {
+  private async handleMessage(topic: string, message: string, packet: any): Promise<void> {
     try {
-      const parsedMessage = JSON.parse(message) as JSONRPCResponse
-
-      // Handle response to pending request
-      if (parsedMessage.id && this.pendingRequests.has(parsedMessage.id)) {
-        const pending = this.pendingRequests.get(parsedMessage.id)!
-        this.pendingRequests.delete(parsedMessage.id)
-        clearTimeout(pending.timeout)
-        pending.resolve(parsedMessage)
-        return
-      }
-
-      // Handle server discovery
-      if (topic.includes('/responses')) {
-        const serverName = this.extractServerNameFromTopic(topic)
-        if (serverName && !this.discoveredServers.has(serverName)) {
-          const serverInfo: ServerInfo = {
-            name: serverName,
-            version: '1.0.0', // This would come from actual discovery
-            capabilities: {}, // This would come from actual discovery
-            topics: {
-              request: `mcp/servers/${serverName}/requests`,
-              response: topic,
-            },
-          }
-
-          this.discoveredServers.set(serverName, serverInfo)
-          this.emit('server:discovered', serverInfo)
-        }
+      if (topic.startsWith('$mcp-server/presence/')) {
+        await this.handleServerPresence(topic, message)
+      } else if (topic.startsWith('$mcp-server/capability/')) {
+        this.handleServerCapabilityChange(topic, message)
+      } else if (topic.startsWith('$mcp-rpc/')) {
+        this.handleRpcMessage(topic, message)
       }
     } catch (error) {
       console.error('Failed to handle message:', error)
     }
   }
 
-  private extractServerNameFromTopic(topic: string): string | null {
-    const match = topic.match(/mcp\/servers\/([^\/]+)\/responses/)
-    return match?.[1] ?? null
+  private async handleServerPresence(topic: string, message: string): Promise<void> {
+    const parts = topic.split('/')
+    if (parts.length < 4) return
+
+    const serverId = parts[2]
+    if (!serverId) return // Guard against undefined serverId
+
+    const serverName = parts.slice(3).join('/') // Reconstruct hierarchical server name
+
+    if (!message.trim()) {
+      // Empty message means server went offline
+      this.discoveredServers.delete(serverId)
+      this.connectedServers.delete(serverId)
+      this.emit('serverDisconnected', serverId)
+      return
+    }
+
+    try {
+      const parsedMessage = JSON.parse(message)
+      const notification: ServerOnlineNotification = ServerOnlineNotificationSchema.parse(parsedMessage)
+
+      const serverInfo: ServerInfo = {
+        serverId,
+        serverName: notification.params.server_name,
+        description: notification.params.description,
+        name: notification.params.server_name,
+        version: '1.0.0', // Will be updated during initialization
+        capabilities: {
+          logging: {},
+          prompts: { listChanged: false },
+          resources: { subscribe: false, listChanged: false },
+          tools: { listChanged: false },
+        },
+        ...(notification.params.meta?.rbac && { rbac: notification.params.meta.rbac }),
+      }
+
+      this.discoveredServers.set(serverId, serverInfo)
+      this.emit('serverDiscovered', serverInfo)
+    } catch (error) {
+      console.error('Failed to parse server presence message:', error)
+    }
+  }
+
+  private handleServerCapabilityChange(topic: string, message: string): void {
+    const parts = topic.split('/')
+    if (parts.length < 4) return
+
+    const serverId = parts[2]
+    if (!serverId) return // Guard against undefined serverId
+
+    try {
+      const parsedMessage = JSON.parse(message)
+      this.emit('serverCapabilityChanged', serverId, parsedMessage.method)
+    } catch (error) {
+      console.error('Failed to parse capability change message:', error)
+    }
+  }
+
+  private handleRpcMessage(topic: string, message: string): void {
+    try {
+      const parsedMessage = JSON.parse(message)
+
+      if (parsedMessage.id && this.pendingRequests.has(parsedMessage.id)) {
+        // This is a response to our request
+        const pendingRequest = this.pendingRequests.get(parsedMessage.id)!
+        this.pendingRequests.delete(parsedMessage.id)
+        clearTimeout(pendingRequest.timeout)
+
+        if (parsedMessage.error) {
+          pendingRequest.reject(new McpError(parsedMessage.error.code, parsedMessage.error.message))
+        } else {
+          pendingRequest.resolve(parsedMessage)
+        }
+      } else if (parsedMessage.method) {
+        // Check if it's a disconnect notification
+        if (parsedMessage.method === 'notifications/disconnected') {
+          try {
+            DisconnectedNotificationSchema.parse(parsedMessage)
+            // Handle server disconnect - clean up this server connection
+            const parts = topic.split('/')
+            if (parts.length >= 3) {
+              const serverId = parts[2]
+              if (serverId) {
+                this.connectedServers.delete(serverId)
+                this.emit('serverDisconnected', serverId)
+              }
+            }
+            return
+          } catch (error) {
+            console.error('Invalid disconnect notification:', error)
+          }
+        }
+
+        // This is a notification or request from server
+        this.emit('serverNotification', parsedMessage)
+      }
+    } catch (error) {
+      console.error('Failed to parse RPC message:', error)
+    }
   }
 
   getDiscoveredServers(): ServerInfo[] {
@@ -308,12 +434,8 @@ export class McpMqttClient extends EventEmitter {
     return Array.from(this.connectedServers.values())
   }
 
-  onServerDiscovered(callback: (server: ServerInfo) => void): void {
-    this.on('server:discovered', callback)
-  }
-
-  onServerConnected(callback: (server: ServerInfo) => void): void {
-    this.on('server:connected', callback)
+  isServerConnected(serverId: string): boolean {
+    return this.connectedServers.has(serverId)
   }
 }
 

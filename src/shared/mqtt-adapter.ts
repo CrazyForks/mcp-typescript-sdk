@@ -16,10 +16,18 @@ function parseUndefined<T extends Record<string, any>>(obj: T): Partial<T> {
 export interface MqttAdapter {
   connect(): Promise<void>
   disconnect(): Promise<void>
-  subscribe(topic: string): Promise<void>
+  subscribe(topic: string, options?: { nl?: boolean }): Promise<void>
   unsubscribe(topic: string): Promise<void>
-  publish(topic: string, message: string): Promise<void>
-  on(event: 'message', callback: (topic: string, payload: Buffer) => void): void
+  publish(
+    topic: string,
+    message: string,
+    options?: {
+      qos?: 0 | 1 | 2
+      retain?: boolean
+      userProperties?: Record<string, string>
+    },
+  ): Promise<void>
+  on(event: 'message', callback: (topic: string, payload: Buffer, packet?: any) => void): void
   on(event: 'connect' | 'disconnect' | 'error', callback: (...args: any[]) => void): void
   isConnected(): boolean
 }
@@ -39,11 +47,17 @@ export class UniversalMqttAdapter implements MqttAdapter {
         username: this.options.username,
         password: this.options.password,
         will: this.options.will,
+        properties: this.options.properties,
       }),
       clean: this.options.clean ?? true,
       keepalive: this.options.keepalive ?? 60,
       connectTimeout: this.options.connectTimeout ?? 30000,
       reconnectPeriod: this.options.reconnectPeriod ?? 1000,
+      protocolVersion: 5, // Force MQTT 5.0
+      properties: {
+        sessionExpiryInterval: 0, // As required by specification
+        ...this.options.properties,
+      },
     }
 
     // Browser-specific options
@@ -117,14 +131,23 @@ export class UniversalMqttAdapter implements MqttAdapter {
     })
   }
 
-  async subscribe(topic: string): Promise<void> {
+  async subscribe(topic: string, options?: { nl?: boolean }): Promise<void> {
     return new Promise((resolve, reject) => {
       if (!this.client) {
         reject(new Error('MQTT client not connected'))
         return
       }
 
-      this.client.subscribe(topic, (error) => {
+      const subscribeOptions: any = {
+        qos: 1, // Default QoS
+      }
+
+      // Add No Local option for MQTT 5.0
+      if (options?.nl) {
+        subscribeOptions.nl = true // No Local flag
+      }
+
+      this.client.subscribe(topic, subscribeOptions, (error) => {
         if (error) {
           reject(error)
         } else {
@@ -151,14 +174,34 @@ export class UniversalMqttAdapter implements MqttAdapter {
     })
   }
 
-  async publish(topic: string, message: string): Promise<void> {
+  async publish(
+    topic: string,
+    message: string,
+    options?: {
+      qos?: 0 | 1 | 2
+      retain?: boolean
+      userProperties?: Record<string, string>
+    },
+  ): Promise<void> {
     return new Promise((resolve, reject) => {
       if (!this.client) {
         reject(new Error('MQTT client not connected'))
         return
       }
 
-      this.client.publish(topic, message, (error) => {
+      const publishOptions: any = {
+        qos: options?.qos ?? 1, // Default QoS 1
+        retain: options?.retain ?? false,
+      }
+
+      // Add MQTT 5.0 user properties
+      if (options?.userProperties) {
+        publishOptions.properties = {
+          userProperties: options.userProperties,
+        }
+      }
+
+      this.client.publish(topic, message, publishOptions, (error) => {
         if (error) {
           reject(error)
         } else {
@@ -168,13 +211,21 @@ export class UniversalMqttAdapter implements MqttAdapter {
     })
   }
 
-  on(event: 'message', callback: (topic: string, payload: Buffer) => void): void
+  on(event: 'message', callback: (topic: string, payload: Buffer, packet?: any) => void): void
   on(event: 'connect' | 'disconnect' | 'error', callback: (...args: any[]) => void): void
   on(event: string, callback: (...args: any[]) => void): void {
     if (!this.client) {
       throw new Error('MQTT client not initialized')
     }
-    this.client.on(event as any, callback)
+
+    // Special handling for message event to pass packet info
+    if (event === 'message') {
+      this.client.on('message', (topic: string, payload: Buffer, packet: any) => {
+        callback(topic, payload, packet)
+      })
+    } else {
+      this.client.on(event as any, callback)
+    }
   }
 
   isConnected(): boolean {

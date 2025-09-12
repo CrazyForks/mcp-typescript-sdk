@@ -9,8 +9,15 @@ import type {
   InitializeRequest,
   CallToolRequest,
   ReadResourceRequest,
+  ServerOnlineNotification,
 } from '../types.js'
-import { InitializeRequestSchema, CallToolRequestSchema, ReadResourceRequestSchema, ErrorCode } from '../types.js'
+import {
+  InitializeRequestSchema,
+  CallToolRequestSchema,
+  ReadResourceRequestSchema,
+  DisconnectedNotificationSchema,
+  ErrorCode,
+} from '../types.js'
 import { UniversalMqttAdapter } from '../shared/mqtt-adapter.js'
 import { createResponse, McpError } from '../shared/utils.js'
 
@@ -43,34 +50,92 @@ export class McpMqttServer extends EventEmitter {
   private tools: Map<string, { definition: Tool; handler: ToolHandler }> = new Map()
   private resources: Map<string, { definition: Resource; handler: ResourceHandler }> = new Map()
   private isInitialized = false
-  private requestTopic: string
-  private responseTopic: string
+
+  // Standard MQTT topics following official specification
+  private topics: {
+    control: string // $mcp-server/{server-id}/{server-name}
+    capability: string // $mcp-server/capability/{server-id}/{server-name}
+    presence: string // $mcp-server/presence/{server-id}/{server-name}
+    rpcPattern: string // $mcp-rpc/{mcp-client-id}/{server-id}/{server-name}
+  }
+
+  private connectedClients = new Set<string>() // Track connected client IDs
 
   constructor(config: McpMqttServerConfig) {
     super()
     this.config = config
+
+    // Validate server identifiers
+    if (!config.identifiers?.serverId || !config.identifiers?.serverName) {
+      throw new Error('Server identifiers (serverId and serverName) are required')
+    }
+
+    // Validate serverName format (hierarchical, no + or #)
+    if (config.identifiers.serverName.includes('+') || config.identifiers.serverName.includes('#')) {
+      throw new Error('Server name must not contain + or # characters')
+    }
+
+    // Set MQTT client ID to server-id
+    config.mqtt.clientId = config.identifiers.serverId
+
     this.mqttAdapter = new UniversalMqttAdapter(config.mqtt)
 
-    // Generate topic names based on server name
-    const serverName = config.serverInfo.name.toLowerCase().replace(/\s+/g, '-')
-    this.requestTopic = `mcp/servers/${serverName}/requests`
-    this.responseTopic = `mcp/servers/${serverName}/responses`
+    // Initialize standard MQTT topics
+    const { serverId, serverName } = config.identifiers
+    this.topics = {
+      control: `$mcp-server/${serverId}/${serverName}`,
+      capability: `$mcp-server/capability/${serverId}/${serverName}`,
+      presence: `$mcp-server/presence/${serverId}/${serverName}`,
+      rpcPattern: `$mcp-rpc/+/${serverId}/${serverName}`, // + is for client-id
+    }
+
+    // Set up will message for unexpected disconnection
+    config.mqtt.will = {
+      topic: this.topics.presence,
+      payload: '', // Empty payload to clear presence
+      qos: 1,
+      retain: true,
+    }
   }
 
   async start(): Promise<void> {
     try {
-      await this.mqttAdapter.connect()
-      await this.mqttAdapter.subscribe(this.requestTopic)
+      // Set MQTT 5.0 user properties
+      const userProperties = {
+        'MCP-COMPONENT-TYPE': 'mcp-server',
+        'MCP-META': JSON.stringify({
+          version: this.config.serverInfo.version,
+          implementation: 'mcp-typescript-sdk',
+          serverName: this.config.identifiers.serverName,
+          description: this.config.description,
+          rbac: this.config.rbac,
+        }),
+      }
 
-      this.mqttAdapter.on('message', (topic, payload) => {
-        if (topic === this.requestTopic) {
-          this.handleMessage(payload.toString())
-        }
+      // Add user properties to connection
+      if (!this.config.mqtt.properties) {
+        this.config.mqtt.properties = {}
+      }
+      this.config.mqtt.properties.userProperties = userProperties
+
+      await this.mqttAdapter.connect()
+
+      // Subscribe to server topics according to specification
+      await this.mqttAdapter.subscribe(this.topics.control) // Control messages (initialize)
+      await this.mqttAdapter.subscribe(`$mcp-client/capability/+`) // Client capability changes
+      await this.mqttAdapter.subscribe(`$mcp-client/presence/+`) // Client presence
+      await this.mqttAdapter.subscribe(this.topics.rpcPattern, { nl: true }) // RPC with No Local
+
+      this.mqttAdapter.on('message', (topic, payload, packet) => {
+        this.handleMessage(topic, payload.toString(), packet)
       })
 
       this.mqttAdapter.on('error', (error) => {
         this.emit('error', error)
       })
+
+      // Publish server online presence with retain flag
+      await this.publishServerOnline()
 
       this.emit('ready')
     } catch (error) {
@@ -80,8 +145,30 @@ export class McpMqttServer extends EventEmitter {
   }
 
   async stop(): Promise<void> {
+    // Clear presence before disconnecting
+    await this.mqttAdapter.publish(this.topics.presence, '', { retain: true })
     await this.mqttAdapter.disconnect()
     this.emit('closed')
+  }
+
+  private async publishServerOnline(): Promise<void> {
+    const onlineNotification: ServerOnlineNotification = {
+      jsonrpc: '2.0',
+      method: 'notifications/server/online',
+      params: {
+        server_name: this.config.identifiers.serverName,
+        description: this.config.description || `MCP Server: ${this.config.serverInfo.name}`,
+        meta: this.config.rbac ? { rbac: this.config.rbac } : undefined,
+      },
+    }
+
+    await this.mqttAdapter.publish(this.topics.presence, JSON.stringify(onlineNotification), {
+      retain: true,
+      userProperties: {
+        'MCP-COMPONENT-TYPE': 'mcp-server',
+        'MCP-MQTT-CLIENT-ID': this.config.identifiers.serverId,
+      },
+    })
   }
 
   tool<T extends z.ZodSchema>(
@@ -110,13 +197,11 @@ export class McpMqttServer extends EventEmitter {
     let handler: ToolHandler
 
     if (typeof nameOrSchema === 'string') {
-      // Traditional API: tool(name, description, inputSchema, handler)
       name = nameOrSchema
       description = descriptionOrSchema as string
       inputSchema = inputSchemaOrHandler as Record<string, any>
       handler = handlerOrUndefined!
     } else {
-      // Zod API: tool(name, schema, handler) - not implemented in this signature
       throw new Error('Zod schema API not implemented in this overload')
     }
 
@@ -127,6 +212,11 @@ export class McpMqttServer extends EventEmitter {
     }
 
     this.tools.set(name, { definition: toolDefinition, handler })
+
+    // Notify about tools capability change if initialized
+    if (this.isInitialized && this.config.capabilities?.tools?.listChanged) {
+      this.notifyCapabilityChange('notifications/tools/list_changed')
+    }
   }
 
   resource(
@@ -146,58 +236,166 @@ export class McpMqttServer extends EventEmitter {
     }
 
     this.resources.set(uri, { definition: resourceDefinition, handler })
+
+    // Notify about resources capability change if initialized
+    if (this.isInitialized && this.config.capabilities?.resources?.listChanged) {
+      this.notifyCapabilityChange('notifications/resources/list_changed')
+    }
   }
 
-  private async handleMessage(message: string): Promise<void> {
+  private async notifyCapabilityChange(method: string): Promise<void> {
+    const notification = {
+      jsonrpc: '2.0',
+      method,
+    }
+
+    await this.mqttAdapter.publish(this.topics.capability, JSON.stringify(notification), {
+      userProperties: {
+        'MCP-COMPONENT-TYPE': 'mcp-server',
+        'MCP-MQTT-CLIENT-ID': this.config.identifiers.serverId,
+      },
+    })
+  }
+
+  private async handleMessage(topic: string, message: string, packet: any): Promise<void> {
     try {
-      const parsedMessage = JSON.parse(message)
+      // Extract client ID from topic if it's an RPC message
+      let clientId: string | undefined
 
-      if (!parsedMessage.method || !parsedMessage.id) {
-        return
-      }
-
-      const request = parsedMessage as JSONRPCRequest
-      let response: JSONRPCResponse
-
-      try {
-        switch (request.method) {
-          case 'initialize':
-            response = await this.handleInitialize(request as InitializeRequest)
-            break
-          case 'tools/list':
-            response = this.handleToolsList(request)
-            break
-          case 'tools/call':
-            response = await this.handleToolCall(request as CallToolRequest)
-            break
-          case 'resources/list':
-            response = this.handleResourcesList(request)
-            break
-          case 'resources/read':
-            response = await this.handleResourceRead(request as ReadResourceRequest)
-            break
-          default:
-            response = createResponse(request.id, undefined, {
-              code: ErrorCode.METHOD_NOT_FOUND,
-              message: `Method not found: ${request.method}`,
-            })
+      if (topic.startsWith('$mcp-rpc/')) {
+        const parts = topic.split('/')
+        if (parts.length >= 2) {
+          clientId = parts[1] // $mcp-rpc/{mcp-client-id}/...
         }
-      } catch (error) {
-        const mcpError =
-          error instanceof McpError
-            ? error
-            : new McpError(ErrorCode.INTERNAL_ERROR, error instanceof Error ? error.message : 'Internal error')
-
-        response = createResponse(request.id, undefined, mcpError.toJSON())
+      } else if (topic.startsWith('$mcp-client/')) {
+        const parts = topic.split('/')
+        if (parts.length >= 3) {
+          clientId = parts[2] // $mcp-client/{capability|presence}/{mcp-client-id}
+        }
       }
 
-      await this.mqttAdapter.publish(this.responseTopic, JSON.stringify(response))
+      // Handle different message types based on topic
+      if (topic === this.topics.control) {
+        await this.handleControlMessage(message, clientId)
+      } else if (topic.startsWith('$mcp-rpc/')) {
+        await this.handleRpcMessage(message, clientId!)
+      } else if (topic.startsWith('$mcp-client/capability/')) {
+        this.handleClientCapabilityChange(message, clientId!)
+      } else if (topic.startsWith('$mcp-client/presence/')) {
+        await this.handleClientPresence(message, clientId!)
+      }
     } catch (error) {
       console.error('Failed to handle message:', error)
     }
   }
 
-  private async handleInitialize(request: InitializeRequest): Promise<JSONRPCResponse> {
+  private async handleControlMessage(message: string, clientId?: string): Promise<void> {
+    const parsedMessage = JSON.parse(message)
+
+    if (parsedMessage.method === 'initialize' && parsedMessage.id && clientId) {
+      const request = parsedMessage as InitializeRequest
+      const response = await this.handleInitialize(request, clientId)
+
+      // Respond via RPC topic
+      const rpcTopic = `$mcp-rpc/${clientId}/${this.config.identifiers.serverId}/${this.config.identifiers.serverName}`
+      await this.mqttAdapter.publish(rpcTopic, JSON.stringify(response), {
+        userProperties: {
+          'MCP-COMPONENT-TYPE': 'mcp-server',
+          'MCP-MQTT-CLIENT-ID': this.config.identifiers.serverId,
+        },
+      })
+
+      // Subscribe to client-specific topics after initialization
+      await this.mqttAdapter.subscribe(`$mcp-client/capability/${clientId}`)
+      await this.mqttAdapter.subscribe(`$mcp-client/presence/${clientId}`)
+
+      this.connectedClients.add(clientId)
+    }
+  }
+
+  private async handleRpcMessage(message: string, clientId: string): Promise<void> {
+    const parsedMessage = JSON.parse(message)
+
+    if (!parsedMessage.method || !parsedMessage.id) {
+      return
+    }
+
+    const request = parsedMessage as JSONRPCRequest
+    let response: JSONRPCResponse
+
+    try {
+      switch (request.method) {
+        case 'tools/list':
+          response = this.handleToolsList(request)
+          break
+        case 'tools/call':
+          response = await this.handleToolCall(request as CallToolRequest)
+          break
+        case 'resources/list':
+          response = this.handleResourcesList(request)
+          break
+        case 'resources/read':
+          response = await this.handleResourceRead(request as ReadResourceRequest)
+          break
+        case 'ping':
+          response = createResponse(request.id, { pong: true })
+          break
+        default:
+          response = createResponse(request.id, undefined, {
+            code: ErrorCode.METHOD_NOT_FOUND,
+            message: `Method not found: ${request.method}`,
+          })
+      }
+    } catch (error) {
+      const mcpError =
+        error instanceof McpError
+          ? error
+          : new McpError(ErrorCode.INTERNAL_ERROR, error instanceof Error ? error.message : 'Internal error')
+
+      response = createResponse(request.id, undefined, mcpError.toJSON())
+    }
+
+    // Send response back via RPC topic
+    const rpcTopic = `$mcp-rpc/${clientId}/${this.config.identifiers.serverId}/${this.config.identifiers.serverName}`
+    await this.mqttAdapter.publish(rpcTopic, JSON.stringify(response), {
+      userProperties: {
+        'MCP-COMPONENT-TYPE': 'mcp-server',
+        'MCP-MQTT-CLIENT-ID': this.config.identifiers.serverId,
+      },
+    })
+  }
+
+  private handleClientCapabilityChange(message: string, clientId: string): void {
+    // Handle client capability changes
+    console.log(`Client ${clientId} capability changed:`, message)
+  }
+
+  private async handleClientPresence(message: string, clientId: string): Promise<void> {
+    if (!message.trim()) {
+      // If empty message, client disconnected unexpectedly
+      this.connectedClients.delete(clientId)
+      return
+    }
+
+    try {
+      const parsedMessage = JSON.parse(message)
+      // Validate disconnection message using Schema
+      DisconnectedNotificationSchema.parse(parsedMessage)
+
+      // Client disconnected gracefully
+      this.connectedClients.delete(clientId)
+
+      // Unsubscribe from client-specific topics
+      await this.mqttAdapter.unsubscribe(`$mcp-client/capability/${clientId}`)
+      await this.mqttAdapter.unsubscribe(`$mcp-client/presence/${clientId}`)
+    } catch (error) {
+      console.error('Failed to parse client disconnection message:', error)
+      // Still remove the client on parse error
+      this.connectedClients.delete(clientId)
+    }
+  }
+
+  private async handleInitialize(request: InitializeRequest, clientId: string): Promise<JSONRPCResponse> {
     try {
       InitializeRequestSchema.parse(request)
       this.isInitialized = true
@@ -279,9 +477,15 @@ export class McpMqttServer extends EventEmitter {
 
   getTopics() {
     return {
-      request: this.requestTopic,
-      response: this.responseTopic,
+      control: this.topics.control,
+      capability: this.topics.capability,
+      presence: this.topics.presence,
+      rpc: this.topics.rpcPattern,
     }
+  }
+
+  getConnectedClients(): string[] {
+    return Array.from(this.connectedClients)
   }
 }
 

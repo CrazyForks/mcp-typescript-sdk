@@ -134,7 +134,7 @@ export const ReadResourceRequestSchema = z.object({
   }),
 })
 
-// MQTT-specific types
+// MQTT-specific types following official MCP over MQTT specification
 export interface MqttConnectionOptions {
   host: string
   port?: number
@@ -151,13 +151,61 @@ export interface MqttConnectionOptions {
     qos?: 0 | 1 | 2
     retain?: boolean
   }
+  properties?: Record<string, any>
 }
+
+// MCP over MQTT identifiers following the official specification
+export interface McpMqttIdentifiers {
+  serverId: string // MQTT Client ID of MCP server instance
+  serverName: string // Hierarchical server name (e.g., "server-type/sub-type/name")
+  mcpClientId: string // MQTT Client ID of MCP client
+}
+
+// Server online notification schema
+export const ServerOnlineNotificationSchema = z.object({
+  jsonrpc: z.literal('2.0'),
+  method: z.literal('notifications/server/online'),
+  params: z.object({
+    server_name: z.string(),
+    description: z.string(),
+    meta: z
+      .object({
+        rbac: z
+          .object({
+            roles: z.array(
+              z.object({
+                name: z.string(),
+                description: z.string(),
+                allowed_methods: z.array(z.string()),
+                allowed_tools: z.union([z.literal('all'), z.array(z.string())]),
+                allowed_resources: z.union([z.literal('all'), z.array(z.string())]),
+              }),
+            ),
+          })
+          .optional(),
+      })
+      .optional(),
+  }),
+})
+
+// Disconnected notification schema
+export const DisconnectedNotificationSchema = z.object({
+  jsonrpc: z.literal('2.0'),
+  method: z.literal('notifications/disconnected'),
+})
+
+export type ServerOnlineNotification = z.infer<typeof ServerOnlineNotificationSchema>
+export type DisconnectedNotification = z.infer<typeof DisconnectedNotificationSchema>
 
 export interface McpMqttServerConfig {
   mqtt: MqttConnectionOptions
   serverInfo: {
     name: string
     version: string
+  }
+  identifiers: {
+    serverId: string // Must be globally unique MQTT Client ID
+    serverName: string // Hierarchical name like "server-type/sub-type/name"
   }
   capabilities?: {
     logging?: Record<string, any>
@@ -171,6 +219,16 @@ export interface McpMqttServerConfig {
     tools?: {
       listChanged?: boolean
     }
+  }
+  description?: string // Brief description for service discovery
+  rbac?: {
+    roles: Array<{
+      name: string
+      description: string
+      allowed_methods: string[]
+      allowed_tools: 'all' | string[]
+      allowed_resources: 'all' | string[]
+    }>
   }
 }
 
