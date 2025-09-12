@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
-import { createMcpServer } from '../src/index.js'
-import type { McpMqttServerConfig } from '../src/types.js'
+import { McpMqttServer } from '../dist/index.js'
+import type { McpMqttServerConfig } from '../dist/types.js'
 
 function printUsage() {
   console.log(`
@@ -27,8 +27,8 @@ Examples:
 function parseArgs(): McpMqttServerConfig {
   const args = process.argv.slice(2)
   const config: Partial<McpMqttServerConfig> = {
-    mqtt: {},
-    serverInfo: {},
+    mqtt: { host: 'localhost' },
+    serverInfo: { name: '', version: '' },
   }
 
   for (let i = 0; i < args.length; i++) {
@@ -73,7 +73,7 @@ function parseArgs(): McpMqttServerConfig {
         i++
         break
       default:
-        if (arg.startsWith('-')) {
+        if (arg && arg.startsWith('-')) {
           throw new Error(`Unknown option: ${arg}`)
         }
     }
@@ -96,7 +96,7 @@ async function main() {
     console.log(`📡 Server: ${config.serverInfo.name} v${config.serverInfo.version}`)
     console.log(`🌐 MQTT Broker: ${config.mqtt.host}:${config.mqtt.port}`)
 
-    const server = createMcpServer(config)
+    const server = new McpMqttServer(config)
 
     // Node.js specific tools
     server.tool(
