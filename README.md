@@ -241,28 +241,11 @@ The SDK automatically detects the environment:
 - **Browser**: Uses WebSocket transport (wss://) on port 8084 by default
 - **Node.js**: Uses TCP transport (mqtt://) on port 1883 by default
 
-## CLI Tool
-
-The package includes a CLI tool for testing:
-
-```bash
-# Install globally
-npm install -g @emqx-ai/mcp-mqtt-sdk
-
-# Start a test server
-mcp-mqtt-server --server-name "Test Server" --host localhost --port 1883
-
-# With authentication
-mcp-mqtt-server --server-name "Secure Server" --username user --password pass
-```
-
 ## Examples
 
-See the `examples/` directory for more complete examples:
-- Smart home control server
-- File system resource server
-- Calculator tool server
-- Multi-server client
+See the `examples/` directory for complete examples:
+- **Node.js Server** (`node-server.ts`) - MCP server with tools and resources
+- **Node.js Client** (`node-client.ts`) - MCP client with server discovery and testing
 
 ## Contributing
 
