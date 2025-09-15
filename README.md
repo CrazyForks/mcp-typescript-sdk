@@ -639,6 +639,23 @@ The SDK follows JSON-RPC 2.0 error codes:
 - `-32603`: Internal error
 - `-32000` to `-32099`: Implementation-defined server errors
 
+## Release Process
+
+To publish a new version:
+
+```bash
+# Update version and create tag
+npm version patch  # or minor, major
+
+# Push changes and tag
+git push origin main --tags
+```
+
+The CI will automatically:
+- Create a GitHub release
+- Run lint, tests, and build
+- Publish to npm as `@emqx-ai/mcp-mqtt-sdk`
+
 ## Contributing
 
 1. Fork the repository
