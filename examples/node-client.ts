@@ -2,6 +2,7 @@
 
 import { McpMqttClient } from '../dist/index.js'
 import type { McpMqttClientConfig } from '../dist/types.js'
+import * as readline from 'readline'
 
 function printUsage() {
   console.log(`
@@ -108,6 +109,350 @@ function parseArgs(): McpMqttClientConfig {
   return finalConfig
 }
 
+// Interactive interface for tool execution
+class InteractiveInterface {
+  private rl: readline.Interface
+  private client: McpMqttClient
+  private servers: Map<string, { name: string; tools: any[]; resources: any[] }> = new Map()
+
+  constructor(client: McpMqttClient) {
+    this.client = client
+    this.rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+    })
+  }
+
+  addServer(serverId: string, name: string, tools: any[], resources: any[]) {
+    this.servers.set(serverId, { name, tools, resources })
+  }
+
+  async start() {
+    console.log('\n🎯 Interactive Mode Started!')
+    console.log('Type "help" for available commands or "exit" to quit\n')
+    this.showPrompt()
+  }
+
+  private showPrompt() {
+    this.rl.question('MCP> ', async (input) => {
+      await this.handleCommand(input.trim())
+      this.showPrompt()
+    })
+  }
+
+  private async handleCommand(input: string) {
+    const parts = input.split(' ')
+    const command = parts[0].toLowerCase()
+
+    try {
+      switch (command) {
+        case 'help':
+          this.showHelp()
+          break
+        case 'servers':
+          this.listServers()
+          break
+        case 'tools':
+          if (parts.length > 1) {
+            await this.listTools(parts[1])
+          } else {
+            console.log('❌ Usage: tools <server-id>')
+          }
+          break
+        case 'resources':
+          if (parts.length > 1) {
+            await this.listResources(parts[1])
+          } else {
+            console.log('❌ Usage: resources <server-id>')
+          }
+          break
+        case 'call':
+          if (parts.length >= 3) {
+            await this.callTool(parts[1], parts[2], parts.slice(3).join(' '))
+          } else {
+            console.log('❌ Usage: call <server-id> <tool-name> [arguments-json]')
+          }
+          break
+        case 'read':
+          if (parts.length >= 3) {
+            await this.readResource(parts[1], parts[2])
+          } else {
+            console.log('❌ Usage: read <server-id> <resource-uri>')
+          }
+          break
+        case 'interactive':
+          if (parts.length > 1) {
+            await this.startInteractiveToolExecution(parts[1])
+          } else {
+            console.log('❌ Usage: interactive <server-id>')
+          }
+          break
+        case 'exit':
+        case 'quit':
+          console.log('👋 Goodbye!')
+          await this.client.disconnect()
+          process.exit(0)
+          break
+        case '':
+          // Empty input, just show prompt again
+          break
+        default:
+          console.log(`❌ Unknown command: ${command}. Type "help" for available commands.`)
+      }
+    } catch (error) {
+      console.error('❌ Command error:', error)
+    }
+  }
+
+  private showHelp() {
+    console.log(`
+📖 Available Commands:
+
+  help                                   Show this help message
+  servers                               List all discovered servers
+  tools <server-id>                     List available tools for a server
+  resources <server-id>                 List available resources for a server
+  call <server-id> <tool-name> [args]   Call a tool with optional JSON arguments
+  read <server-id> <resource-uri>       Read a resource
+  interactive <server-id>               Start interactive tool execution for a server
+  exit / quit                           Exit the client
+
+Examples:
+  servers
+  tools server-1
+  call server-1 echo {"message": "Hello World"}
+  read server-1 server:info
+  interactive server-1
+`)
+  }
+
+  private listServers() {
+    if (this.servers.size === 0) {
+      console.log('📭 No servers discovered yet.')
+      return
+    }
+
+    console.log('🖥️  Discovered Servers:')
+    for (const [serverId, server] of this.servers) {
+      console.log(`  📡 ${serverId}: ${server.name}`)
+      console.log(`     🔧 Tools: ${server.tools.length}`)
+      console.log(`     📚 Resources: ${server.resources.length}`)
+    }
+  }
+
+  private async listTools(serverId: string) {
+    const server = this.servers.get(serverId)
+    if (!server) {
+      console.log(`❌ Server ${serverId} not found. Use "servers" to list available servers.`)
+      return
+    }
+
+    if (server.tools.length === 0) {
+      console.log(`📭 No tools available on ${server.name}`)
+      return
+    }
+
+    console.log(`🔧 Tools on ${server.name} (${serverId}):`)
+    server.tools.forEach((tool, index) => {
+      console.log(`  ${index + 1}. ${tool.name}: ${tool.description || 'No description'}`)
+      if (tool.inputSchema?.properties) {
+        console.log(`     📋 Parameters: ${Object.keys(tool.inputSchema.properties).join(', ')}`)
+      }
+    })
+  }
+
+  private async listResources(serverId: string) {
+    const server = this.servers.get(serverId)
+    if (!server) {
+      console.log(`❌ Server ${serverId} not found. Use "servers" to list available servers.`)
+      return
+    }
+
+    if (server.resources.length === 0) {
+      console.log(`📭 No resources available on ${server.name}`)
+      return
+    }
+
+    console.log(`📚 Resources on ${server.name} (${serverId}):`)
+    server.resources.forEach((resource, index) => {
+      console.log(`  ${index + 1}. ${resource.uri}: ${resource.name}`)
+      if (resource.description) {
+        console.log(`     📝 ${resource.description}`)
+      }
+    })
+  }
+
+  private async callTool(serverId: string, toolName: string, argsStr: string) {
+    const server = this.servers.get(serverId)
+    if (!server) {
+      console.log(`❌ Server ${serverId} not found.`)
+      return
+    }
+
+    const tool = server.tools.find((t) => t.name === toolName)
+    if (!tool) {
+      console.log(`❌ Tool "${toolName}" not found on server ${serverId}.`)
+      return
+    }
+
+    let args = {}
+    if (argsStr) {
+      try {
+        args = JSON.parse(argsStr)
+      } catch (error) {
+        console.log(`❌ Invalid JSON arguments: ${argsStr}`)
+        return
+      }
+    }
+
+    console.log(`⏳ Calling tool "${toolName}" on ${server.name}...`)
+    try {
+      const result = await this.client.callTool(serverId, toolName, args)
+      console.log(`✅ Tool result:`)
+      result.content.forEach((content) => {
+        if (content.type === 'text') {
+          console.log(content.text)
+        } else {
+          console.log(`[${content.type}]`, content)
+        }
+      })
+    } catch (error) {
+      console.error(`❌ Tool execution failed:`, error)
+    }
+  }
+
+  private async readResource(serverId: string, resourceUri: string) {
+    const server = this.servers.get(serverId)
+    if (!server) {
+      console.log(`❌ Server ${serverId} not found.`)
+      return
+    }
+
+    const resource = server.resources.find((r) => r.uri === resourceUri)
+    if (!resource) {
+      console.log(`❌ Resource "${resourceUri}" not found on server ${serverId}.`)
+      return
+    }
+
+    console.log(`⏳ Reading resource "${resourceUri}" from ${server.name}...`)
+    try {
+      const result = await this.client.readResource(serverId, resourceUri)
+      console.log(`✅ Resource content:`)
+      result.contents.forEach((content) => {
+        if (content.type === 'text') {
+          console.log(content.text)
+        } else {
+          console.log(`[${content.type}]`, content)
+        }
+      })
+    } catch (error) {
+      console.error(`❌ Resource read failed:`, error)
+    }
+  }
+
+  private async startInteractiveToolExecution(serverId: string) {
+    const server = this.servers.get(serverId)
+    if (!server) {
+      console.log(`❌ Server ${serverId} not found.`)
+      return
+    }
+
+    if (server.tools.length === 0) {
+      console.log(`📭 No tools available on ${server.name}`)
+      return
+    }
+
+    console.log(`\n🎯 Interactive Tool Execution for ${server.name}`)
+    console.log('Select a tool to execute:\n')
+
+    server.tools.forEach((tool, index) => {
+      console.log(`  ${index + 1}. ${tool.name}: ${tool.description || 'No description'}`)
+    })
+
+    const choice = await this.askQuestion('\nEnter tool number (or "back" to return): ')
+
+    if (choice.toLowerCase() === 'back') {
+      return
+    }
+
+    const toolIndex = parseInt(choice) - 1
+    if (isNaN(toolIndex) || toolIndex < 0 || toolIndex >= server.tools.length) {
+      console.log('❌ Invalid tool number.')
+      return
+    }
+
+    const selectedTool = server.tools[toolIndex]
+    console.log(`\n🔧 Selected tool: ${selectedTool.name}`)
+
+    if (selectedTool.description) {
+      console.log(`📝 Description: ${selectedTool.description}`)
+    }
+
+    // Collect parameters if needed
+    let args = {}
+    if (selectedTool.inputSchema?.properties) {
+      console.log('\n📋 This tool requires parameters:')
+      const properties = selectedTool.inputSchema.properties
+
+      for (const [paramName, paramSchema] of Object.entries(properties)) {
+        const schema = paramSchema as any
+        const isRequired = selectedTool.inputSchema.required?.includes(paramName) || false
+        const prompt = `  ${paramName}${isRequired ? ' (required)' : ' (optional)'}: ${schema.description || 'No description'} `
+
+        const value = await this.askQuestion(prompt)
+
+        if (value || isRequired) {
+          // Try to parse as JSON for complex types, otherwise use as string
+          try {
+            if (schema.type === 'object' || schema.type === 'array') {
+              args[paramName] = JSON.parse(value)
+            } else if (schema.type === 'number' || schema.type === 'integer') {
+              args[paramName] = Number(value)
+            } else if (schema.type === 'boolean') {
+              args[paramName] = value.toLowerCase() === 'true'
+            } else {
+              args[paramName] = value
+            }
+          } catch {
+            args[paramName] = value
+          }
+        }
+      }
+    }
+
+    // Execute the tool
+    console.log(`\n⏳ Executing tool "${selectedTool.name}"...`)
+    try {
+      const result = await this.client.callTool(serverId, selectedTool.name, args)
+      console.log(`\n✅ Tool execution completed:`)
+      result.content.forEach((content) => {
+        if (content.type === 'text') {
+          console.log(content.text)
+        } else {
+          console.log(`[${content.type}]`, content)
+        }
+      })
+    } catch (error) {
+      console.error(`\n❌ Tool execution failed:`, error)
+    }
+
+    const continueChoice = await this.askQuestion('\nExecute another tool? (y/n): ')
+    if (continueChoice.toLowerCase() === 'y' || continueChoice.toLowerCase() === 'yes') {
+      await this.startInteractiveToolExecution(serverId)
+    }
+  }
+
+  private askQuestion(question: string): Promise<string> {
+    return new Promise((resolve) => {
+      this.rl.question(question, resolve)
+    })
+  }
+
+  close() {
+    this.rl.close()
+  }
+}
+
 async function main() {
   try {
     const config = parseArgs()
@@ -117,6 +462,7 @@ async function main() {
     console.log(`🌐 MQTT Broker: ${config.host}:${config.port}`)
 
     const client = new McpMqttClient(config)
+    const interactive = new InteractiveInterface(client)
 
     let connectedServers: Set<string> = new Set()
 
@@ -139,9 +485,6 @@ async function main() {
           tools.forEach((tool) => {
             console.log(`  - ${tool.name}: ${tool.description || 'No description'}`)
           })
-
-          // Test Node.js specific tools
-          await testNodeTools(client, server.serverId, tools)
         } else {
           console.log(`📋 No tools available on ${server.name}`)
         }
@@ -155,14 +498,16 @@ async function main() {
           resources.forEach((resource) => {
             console.log(`  - ${resource.uri}: ${resource.name}`)
           })
-
-          // Test Node.js specific resources
-          await testNodeResources(client, server.serverId, resources)
         } else {
           console.log(`📚 No resources available on ${server.name}`)
         }
+
+        // Add server to interactive interface
+        interactive.addServer(server.serverId, server.name, tools, resources)
       } catch (error) {
-        console.error(`❌ Failed to interact with server ${server.name}:`, error)
+        console.error(`❌ Failed to interact with server ${server.name}:`)
+        console.error('   Error details:', error)
+        console.error('   Stack:', error instanceof Error ? error.stack : 'No stack available')
       }
     })
 
@@ -174,6 +519,7 @@ async function main() {
     process.on('SIGINT', async () => {
       console.log('\n🛑 Shutting down client...')
       try {
+        interactive.close()
         await client.disconnect()
         console.log('✅ Client stopped gracefully')
         process.exit(0)
@@ -186,100 +532,20 @@ async function main() {
     console.log('🔍 Starting server discovery...')
     await client.connect()
 
-    // Keep the client running for a while to discover servers
-    console.log('⏳ Waiting for server discovery (30 seconds)...')
+    // Wait for initial server discovery
+    console.log('⏳ Waiting for server discovery (5 seconds)...')
     console.log('   Make sure to start a server with: node node-server.js')
 
-    setTimeout(() => {
+    setTimeout(async () => {
       if (connectedServers.size === 0) {
-        console.log('⚠️  No servers discovered. Make sure a server is running.')
-        process.exit(0)
+        console.log('⚠️  No servers discovered yet. You can still use the interactive interface.')
       }
-    }, 30000)
+      // Start interactive mode
+      await interactive.start()
+    }, 5000)
   } catch (error) {
     console.error('❌ Failed to start client:', error instanceof Error ? error.message : error)
     process.exit(1)
-  }
-}
-
-async function testNodeTools(client: any, serverId: string, tools: any[]) {
-  console.log(`🧪 Testing Node.js tools on server ${serverId}...`)
-
-  // Test system-info tool
-  const systemInfoTool = tools.find((t) => t.name === 'system-info')
-  if (systemInfoTool) {
-    try {
-      const result = await client.callTool(serverId, 'system-info', {})
-      const systemInfo = JSON.parse(result.content[0]?.text || '{}')
-      console.log(`  ✅ system-info tool: Platform: ${systemInfo.platform}, Node: ${systemInfo.nodeVersion}`)
-    } catch (error) {
-      console.log(`  ❌ system-info tool failed: ${error}`)
-    }
-  }
-
-  // Test file-exists tool
-  const fileExistsTool = tools.find((t) => t.name === 'file-exists')
-  if (fileExistsTool) {
-    try {
-      const result = await client.callTool(serverId, 'file-exists', { path: './package.json' })
-      console.log(`  ✅ file-exists tool: ${result.content[0]?.text}`)
-    } catch (error) {
-      console.log(`  ❌ file-exists tool failed: ${error}`)
-    }
-  }
-
-  // Test common tools
-  const echoTool = tools.find((t) => t.name === 'echo')
-  if (echoTool) {
-    try {
-      const result = await client.callTool(serverId, 'echo', { message: 'Hello from Node.js client!' })
-      console.log(`  ✅ echo tool: ${result.content[0]?.text}`)
-    } catch (error) {
-      console.log(`  ❌ echo tool failed: ${error}`)
-    }
-  }
-
-  const timeTool = tools.find((t) => t.name === 'time')
-  if (timeTool) {
-    try {
-      const result = await client.callTool(serverId, 'time', {})
-      console.log(`  ✅ time tool: ${result.content[0]?.text}`)
-    } catch (error) {
-      console.log(`  ❌ time tool failed: ${error}`)
-    }
-  }
-}
-
-async function testNodeResources(client: any, serverId: string, resources: any[]) {
-  console.log(`🧪 Testing Node.js resources on server ${serverId}...`)
-
-  // Test server:info resource
-  const infoResource = resources.find((r) => r.uri === 'server:info')
-  if (infoResource) {
-    try {
-      const result = await client.readResource(serverId, 'server:info')
-      console.log(`  ✅ server:info resource:`)
-      const info = JSON.parse(result.contents[0]?.text || '{}')
-      console.log(`     Server: ${info.name} v${info.version}`)
-      console.log(`     Platform: ${info.runtime?.platform}, Node: ${info.runtime?.nodeVersion}`)
-      console.log(`     Uptime: ${Math.floor(info.runtime?.uptime || 0)} seconds`)
-    } catch (error) {
-      console.log(`  ❌ server:info resource failed: ${error}`)
-    }
-  }
-
-  // Test process:env resource (show only a few env vars for privacy)
-  const envResource = resources.find((r) => r.uri === 'process:env')
-  if (envResource) {
-    try {
-      const result = await client.readResource(serverId, 'process:env')
-      const env = JSON.parse(result.contents[0]?.text || '{}')
-      const envCount = Object.keys(env).length
-      console.log(`  ✅ process:env resource: Found ${envCount} environment variables`)
-      console.log(`     Sample: PATH exists: ${env.PATH ? 'Yes' : 'No'}`)
-    } catch (error) {
-      console.log(`  ❌ process:env resource failed: ${error}`)
-    }
   }
 }
 

@@ -28,16 +28,17 @@ A comprehensive Node.js MCP server that demonstrates:
 - Error handling and graceful shutdown
 - Command-line argument parsing
 
-### 2. Node.js Client (`node-client.ts`)
+### 2. Interactive Node.js Client (`node-client.ts`)
 
-A comprehensive Node.js MCP client that demonstrates:
+An interactive Node.js MCP client that demonstrates:
 - Client configuration using constructor pattern (`new McpMqttClient()`)
 - Automatic server discovery over MQTT
+- Interactive command-line interface with help system
 - Server connection and initialization
-- Tool listing and execution
+- Tool browsing, selection, and guided execution
 - Resource listing and reading
-- Comprehensive testing of discovered servers
-- Error handling and recovery
+- Direct command execution capabilities
+- Error handling and graceful shutdown
 
 ## Running the Examples
 
@@ -48,12 +49,12 @@ A comprehensive Node.js MCP client that demonstrates:
 node examples/node-server.ts
 ```
 
-2. **Terminal 2** - Run the client:
+2. **Terminal 2** - Run the interactive client:
 ```bash
 node examples/node-client.ts
 ```
 
-The client will automatically discover the server and test all available tools and resources.
+The client will automatically discover the server and enter interactive mode where you can explore and execute tools.
 
 ### With Custom Configuration
 
@@ -113,14 +114,14 @@ Available resources:
 Press Ctrl+C to stop
 ```
 
-### Client Output
+### Interactive Client Output
 ```
 🚀 Starting MCP over MQTT Client (Node.js)...
 📡 Client: Node MCP Client v1.0.0
 🌐 MQTT Broker: localhost:1883
 🔍 Starting server discovery...
    Make sure to start a server with: node node-server.ts
-🔍 Discovered server: Node MCP Server
+🔍 Discovered server: Node MCP Server (ID: server-123)
 🔌 Connecting to server: Node MCP Server...
 ✅ Connected to server: Node MCP Server
 📋 Listing tools for Node MCP Server...
@@ -129,23 +130,94 @@ Press Ctrl+C to stop
   - file-exists: Check if a file exists on the filesystem
   - echo: Echo back the input message
   - time: Get current timestamp
-🧪 Testing Node.js tools on Node MCP Server...
-  ✅ system-info tool: Platform: darwin, Node: v20.8.0
-  ✅ file-exists tool: File "./package.json" exists
-  ✅ echo tool: Echo: Hello from Node.js client!
-  ✅ time tool: Current time: 2024-01-15T10:30:45.123Z
 📚 Listing resources for Node MCP Server...
 📄 Available resources (2):
   - process:env: Environment Variables
   - server:info: Server Information
-🧪 Testing Node.js resources on Node MCP Server...
-  ✅ server:info resource:
-     Server: Node MCP Server v1.0.0
-     Platform: darwin, Node: v20.8.0
-     Uptime: 25 seconds
-  ✅ process:env resource: Found 45 environment variables
-     Sample: PATH exists: Yes
+
+🎯 Interactive Mode Started!
+Type "help" for available commands or "exit" to quit
+
+MCP> help
+
+📖 Available Commands:
+
+  help                                   Show this help message
+  servers                               List all discovered servers
+  tools <server-id>                     List available tools for a server
+  resources <server-id>                 List available resources for a server
+  call <server-id> <tool-name> [args]   Call a tool with optional JSON arguments
+  read <server-id> <resource-uri>       Read a resource
+  interactive <server-id>               Start interactive tool execution for a server
+  exit / quit                           Exit the client
+
+Examples:
+  servers
+  tools server-123
+  call server-123 echo {"message": "Hello World"}
+  read server-123 server:info
+  interactive server-123
+
+MCP> interactive server-123
+
+🎯 Interactive Tool Execution for Node MCP Server
+Select a tool to execute:
+
+  1. system-info: Get Node.js system information
+  2. file-exists: Check if a file exists on the filesystem  
+  3. echo: Echo back the input message
+  4. time: Get current timestamp
+
+Enter tool number (or "back" to return): 3
+
+🔧 Selected tool: echo
+📝 Description: Echo back the input message
+
+📋 This tool requires parameters:
+  message (required): The message to echo back Hello from interactive mode!
+
+⏳ Executing tool "echo"...
+
+✅ Tool execution completed:
+Echo: Hello from interactive mode!
+
+Execute another tool? (y/n): n
+
+MCP> exit
+👋 Goodbye!
 ```
+
+## Interactive Client Commands
+
+The interactive client provides a rich command-line interface for exploring and executing MCP servers:
+
+### Available Commands
+
+| Command | Description | Example |
+|---------|-------------|---------|
+| `help` | Show all available commands | `help` |
+| `servers` | List all discovered servers | `servers` |
+| `tools <server-id>` | List tools on a server | `tools server-123` |
+| `resources <server-id>` | List resources on a server | `resources server-123` |
+| `call <server-id> <tool-name> [args]` | Direct tool execution | `call server-123 echo {"message": "Hello"}` |
+| `read <server-id> <resource-uri>` | Read a resource | `read server-123 server:info` |
+| `interactive <server-id>` | Interactive tool execution | `interactive server-123` |
+| `exit` / `quit` | Exit the client | `exit` |
+
+### Interactive Tool Execution
+
+The `interactive <server-id>` command provides a guided interface:
+
+1. **Tool Selection**: Browse tools with numbered menu
+2. **Parameter Input**: Guided parameter collection with type validation
+3. **Execution**: Run the tool and display results
+4. **Continue**: Option to execute additional tools
+
+This mode is ideal for:
+- Exploring unfamiliar servers
+- Testing tools with complex parameters
+- Learning about available functionality
+- Interactive debugging and development
 
 ## Understanding the Examples
 

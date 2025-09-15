@@ -562,13 +562,13 @@ The SDK includes comprehensive examples in the `examples/` directory:
   - Command-line argument parsing
   - Graceful shutdown handling
 
-- **[node-client.ts](examples/node-client.ts)** - Complete Node.js MCP client
-  - Server discovery and connection
-  - Tool testing and validation
-  - Resource reading and processing
-  - Error handling and recovery
-
-
+- **[node-client.ts](examples/node-client.ts)** - Interactive Node.js MCP client
+  - Server discovery and automatic connection
+  - Interactive command-line interface with help system
+  - Tool browsing, selection, and execution with guided parameter input
+  - Resource listing and reading
+  - Direct command execution (call, read commands)
+  - Error handling and graceful shutdown
 
 ## Development
 
