@@ -212,18 +212,18 @@ import { McpMqttClient } from '../dist/index.js'
 const client = new McpMqttClient(config)
 
 // Server discovery handler
-client.onServerDiscovered(async (server) => {
-  await client.connectToServer(server.name)
+client.on('serverDiscovered', async (server) => {
+  await client.initializeServer(server.serverId)
 
-  // List and call tools
-  const tools = await client.listTools(server.name)
-  const result = await client.callTool(server.name, 'echo', {
+  // List and call tools using serverId
+  const tools = await client.listTools(server.serverId)
+  const result = await client.callTool(server.serverId, 'echo', {
     message: 'Hello!'
   })
 
-  // List and read resources
-  const resources = await client.listResources(server.name)
-  const data = await client.readResource(server.name, 'server:info')
+  // List and read resources using serverId
+  const resources = await client.listResources(server.serverId)
+  const data = await client.readResource(server.serverId, 'server:info')
 })
 
 await client.connect()

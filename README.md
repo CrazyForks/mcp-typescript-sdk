@@ -36,6 +36,15 @@ const server = new McpMqttServer({
     name: 'My MCP Server',
     version: '1.0.0',
   },
+  identifiers: {
+    serverId: 'unique-server-id-123',
+    serverName: 'myapp/greeting-server',  // Hierarchical naming
+  },
+  description: 'A sample MCP server providing greeting tools',
+  capabilities: {
+    tools: { listChanged: true },
+    resources: { listChanged: true, subscribe: false },
+  },
 })
 
 // Add a tool
@@ -126,33 +135,33 @@ const client = new McpMqttClient({
 })
 
 // Set up server discovery handler
-client.onServerDiscovered(async (server) => {
-  console.log('📡 Discovered server:', server.name)
+client.on('serverDiscovered', async (server) => {
+  console.log('📡 Discovered server:', server.name, '(ID:', server.serverId, ')')
 
   try {
-    // Connect to the discovered server
-    await client.connectToServer(server.name)
+    // Connect to the discovered server using serverId
+    await client.initializeServer(server.serverId)
     console.log('✅ Connected to:', server.name)
 
-    // List available tools
-    const tools = await client.listTools(server.name)
+    // List available tools using serverId
+    const tools = await client.listTools(server.serverId)
     console.log('🔧 Available tools:', tools.map(t => t.name))
 
-    // Call a tool
+    // Call a tool using serverId
     if (tools.some(t => t.name === 'greet')) {
-      const result = await client.callTool(server.name, 'greet', {
+      const result = await client.callTool(server.serverId, 'greet', {
         name: 'World',
         language: 'es'
       })
       console.log('🎉 Tool result:', result.content[0]?.text)
     }
 
-    // List and read resources
-    const resources = await client.listResources(server.name)
+    // List and read resources using serverId
+    const resources = await client.listResources(server.serverId)
     console.log('📚 Available resources:', resources.map(r => r.uri))
 
     if (resources.some(r => r.uri === 'config://app-settings')) {
-      const config = await client.readResource(server.name, 'config://app-settings')
+      const config = await client.readResource(server.serverId, 'config://app-settings')
       console.log('📄 Config:', config.contents[0]?.text)
     }
   } catch (error) {
@@ -188,11 +197,25 @@ interface McpMqttServerConfig {
     name: string
     version: string
   }
+  identifiers: {
+    serverId: string      // Unique server ID (MQTT client ID)
+    serverName: string    // Hierarchical server name (e.g., "app/feature/server")
+  }
+  description: string     // Server description (required)
   capabilities?: {
     prompts?: { listChanged?: boolean }
     resources?: { subscribe?: boolean; listChanged?: boolean }
     tools?: { listChanged?: boolean }
-  };
+  }
+  rbac?: {               // Optional role-based access control
+    roles: Array<{
+      name: string
+      description: string
+      allowed_methods: string[]
+      allowed_tools: string[] | "all"
+      allowed_resources: string[] | "all"
+    }>
+  }
 }
 ```
 
@@ -314,19 +337,19 @@ interface McpMqttClientConfig {
 ```typescript
 await client.connect()           // Connect to MQTT broker and start discovery
 await client.disconnect()        // Disconnect from broker
-await client.connectToServer(serverName)  // Connect to a specific server
+await client.initializeServer(serverId)  // Initialize connection to a specific server
 ```
 
 ##### Tool Operations
 ```typescript
-const tools = await client.listTools(serverName)
-const result = await client.callTool(serverName, toolName, args)
+const tools = await client.listTools(serverId)
+const result = await client.callTool(serverId, toolName, args)
 ```
 
 ##### Resource Operations
 ```typescript
-const resources = await client.listResources(serverName)
-const data = await client.readResource(serverName, uri)
+const resources = await client.listResources(serverId)
+const data = await client.readResource(serverId, uri)
 ```
 
 ##### Discovery
@@ -338,12 +361,16 @@ const connected = client.getConnectedServers()
 #### Events
 
 ```typescript
-client.onServerDiscovered((server) => {
-  console.log('Found server:', server.name)
+client.on('serverDiscovered', (server) => {
+  console.log('Found server:', server.name, 'ID:', server.serverId)
 })
 
-client.onServerConnected((server) => {
+client.on('serverInitialized', (server) => {
   console.log('Connected to:', server.name)
+})
+
+client.on('serverDisconnected', (serverId) => {
+  console.log('Server disconnected:', serverId)
 })
 
 client.on('connected', () => console.log('Client connected'))
@@ -544,22 +571,36 @@ npm run lint:fix
 
 ### MQTT Topic Structure
 
-The SDK uses a structured topic hierarchy:
+The SDK follows the official MCP over MQTT specification topic hierarchy:
 
 ```
-mcp/
-├── servers/
-│   └── {server-name}/
-│       ├── requests     # Client → Server
-│       └── responses    # Server → Client
+MCP over MQTT Topic Structure:
+
+🗂️ Server Topics:
+├── $mcp-server/{server-id}/{server-name}              # Control topic (initialization)
+├── $mcp-server/capability/{server-id}/{server-name}   # Capability change notifications
+└── $mcp-server/presence/{server-id}/{server-name}     # Server presence (online/offline)
+
+🗂️ Client Topics:
+├── $mcp-client/capability/{mcp-client-id}             # Client capability changes
+└── $mcp-client/presence/{mcp-client-id}               # Client presence
+
+🗂️ RPC Communication:
+└── $mcp-rpc/{mcp-client-id}/{server-id}/{server-name} # Bidirectional RPC communication
+
+Example Topics:
+- Control: $mcp-server/server-123/myapp/greeting-server
+- Capability: $mcp-server/capability/server-123/myapp/greeting-server
+- Presence: $mcp-server/presence/server-123/myapp/greeting-server
+- RPC: $mcp-rpc/client-456/server-123/myapp/greeting-server
 ```
 
 ### Message Flow
 
-1. **Discovery**: Client subscribes to `mcp/servers/+/responses`
-2. **Connection**: Client sends `initialize` request to server's request topic
-3. **Operations**: Client sends tool calls and resource reads to server
-4. **Responses**: Server responds on its response topic
+1. **Service Discovery**: Client subscribes to `$mcp-server/presence/+/#`
+2. **Server Registration**: Server publishes presence to `$mcp-server/presence/{server-id}/{server-name}`
+3. **Initialization**: Client sends `initialize` request to `$mcp-server/{server-id}/{server-name}`
+4. **RPC Communication**: Bidirectional communication via `$mcp-rpc/{client-id}/{server-id}/{server-name}`
 
 ### Error Codes
 
