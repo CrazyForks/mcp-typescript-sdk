@@ -11,4 +11,4 @@ export { McpMqttClient, createMcpClient } from './client/index.js'
 export type { ServerInfo } from './client/index.js'
 
 // Version
-export const VERSION = '0.2.1'
+export const VERSION = '0.2.2'
