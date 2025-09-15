@@ -28,9 +28,11 @@ Examples:
 function parseArgs(): McpMqttServerConfig {
   const args = process.argv.slice(2)
   const config: Partial<McpMqttServerConfig> = {
-    mqtt: { host: 'localhost' },
-    serverInfo: { name: '', version: '' },
-    identifiers: { serverId: '', serverName: '' },
+    host: 'localhost',
+    name: '',
+    version: '',
+    serverId: '',
+    serverName: '',
   }
 
   for (let i = 0; i < args.length; i++) {
@@ -45,38 +47,38 @@ function parseArgs(): McpMqttServerConfig {
         break
       case '--host':
         if (!nextArg) throw new Error('--host requires a value')
-        config.mqtt!.host = nextArg
+        config.host = nextArg
         i++
         break
       case '--port':
         if (!nextArg) throw new Error('--port requires a value')
-        config.mqtt!.port = parseInt(nextArg, 10)
-        if (isNaN(config.mqtt!.port!)) throw new Error('--port must be a number')
+        config.port = parseInt(nextArg, 10)
+        if (isNaN(config.port!)) throw new Error('--port must be a number')
         i++
         break
       case '--client-id':
         if (!nextArg) throw new Error('--client-id requires a value')
-        config.mqtt!.clientId = nextArg
+        config.clientId = nextArg
         i++
         break
       case '--username':
         if (!nextArg) throw new Error('--username requires a value')
-        config.mqtt!.username = nextArg
+        config.username = nextArg
         i++
         break
       case '--password':
         if (!nextArg) throw new Error('--password requires a value')
-        config.mqtt!.password = nextArg
+        config.password = nextArg
         i++
         break
       case '--server-name':
         if (!nextArg) throw new Error('--server-name requires a value')
-        config.serverInfo!.name = nextArg
+        config.name = nextArg
         i++
         break
       case '--server-id':
         if (!nextArg) throw new Error('--server-id requires a value')
-        config.identifiers!.serverId = nextArg
+        config.serverId = nextArg
         i++
         break
       default:
@@ -87,19 +89,34 @@ function parseArgs(): McpMqttServerConfig {
   }
 
   // Set defaults
-  config.mqtt!.host = config.mqtt!.host || 'localhost'
-  config.mqtt!.port = config.mqtt!.port || 1883
-  config.serverInfo!.name = config.serverInfo!.name || 'Node MCP Server'
-  config.serverInfo!.version = '1.0.0'
+  config.host = config.host || 'localhost'
+  config.port = config.port || 1883
+  config.name = config.name || 'Node MCP Server'
+  config.version = '1.0.0'
 
   // Generate defaults for identifiers
-  const defaultServerName = config.serverInfo!.name!.toLowerCase().replace(/\s+/g, '-')
-  config.identifiers!.serverId = config.identifiers!.serverId || `mcp-server-${Date.now()}`
-  config.identifiers!.serverName = config.identifiers!.serverName || `nodejs/${defaultServerName}`
+  const defaultServerName = config.name!.toLowerCase().replace(/\s+/g, '-')
+  config.serverId = config.serverId || `mcp-server-${Date.now()}`
+  config.serverName = config.serverName || `nodejs/${defaultServerName}`
 
-  // Add required capabilities and description
+  // Build final configuration with required fields
   const finalConfig: McpMqttServerConfig = {
-    ...config,
+    // MQTT connection settings
+    host: config.host!,
+    port: config.port,
+    clientId: config.clientId,
+    username: config.username,
+    password: config.password,
+
+    // Server identification (required)
+    serverId: config.serverId!,
+    serverName: config.serverName!,
+
+    // Server information (required)
+    name: config.name!,
+    version: config.version!,
+
+    // Optional configuration
     description: `A Node.js MCP server providing system tools and environment information`,
     capabilities: {
       tools: {
@@ -110,7 +127,7 @@ function parseArgs(): McpMqttServerConfig {
         subscribe: false,
       },
     },
-  } as McpMqttServerConfig
+  }
 
   return finalConfig
 }
@@ -120,8 +137,8 @@ async function main() {
     const config = parseArgs()
 
     console.log('🚀 Starting MCP over MQTT Server (Node.js)...')
-    console.log(`📡 Server: ${config.serverInfo.name} v${config.serverInfo.version}`)
-    console.log(`🌐 MQTT Broker: ${config.mqtt.host}:${config.mqtt.port}`)
+    console.log(`📡 Server: ${config.name} v${config.version}`)
+    console.log(`🌐 MQTT Broker: ${config.host}:${config.port}`)
 
     const server = new McpMqttServer(config)
 
@@ -263,8 +280,8 @@ async function main() {
             mimeType: 'application/json',
             text: JSON.stringify(
               {
-                name: config.serverInfo.name,
-                version: config.serverInfo.version,
+                name: config.name,
+                version: config.version,
                 startTime: new Date().toISOString(),
                 topics: server.getTopics(),
                 runtime: {

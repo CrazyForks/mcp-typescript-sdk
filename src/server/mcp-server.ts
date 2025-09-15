@@ -2,6 +2,7 @@ import { EventEmitter } from 'events'
 import { z } from 'zod'
 import type {
   McpMqttServerConfig,
+  MqttConnectionOptions,
   Tool,
   Resource,
   JSONRPCRequest,
@@ -18,7 +19,7 @@ import {
   DisconnectedNotificationSchema,
   ErrorCode,
 } from '../types.js'
-import { UniversalMqttAdapter } from '../shared/mqtt-adapter.js'
+import { UniversalMqttAdapter, parseUndefined } from '../shared/mqtt-adapter.js'
 import { createResponse, McpError } from '../shared/utils.js'
 
 export interface ToolHandler {
@@ -65,23 +66,54 @@ export class McpMqttServer extends EventEmitter {
     super()
     this.config = config
 
-    // Validate server identifiers
-    if (!config.identifiers?.serverId || !config.identifiers?.serverName) {
-      throw new Error('Server identifiers (serverId and serverName) are required')
+    // Validate required fields
+    if (!config.serverId || !config.serverName) {
+      throw new Error('serverId and serverName are required')
+    }
+    if (!config.name || !config.version) {
+      throw new Error('name and version are required')
+    }
+    if (!config.host) {
+      throw new Error('host is required')
     }
 
     // Validate serverName format (hierarchical, no + or #)
-    if (config.identifiers.serverName.includes('+') || config.identifiers.serverName.includes('#')) {
+    if (config.serverName.includes('+') || config.serverName.includes('#')) {
       throw new Error('Server name must not contain + or # characters')
     }
 
-    // Set MQTT client ID to server-id
-    config.mqtt.clientId = config.identifiers.serverId
+    // Build MQTT connection options from flat config, filtering undefined values
+    const mqttOptions: MqttConnectionOptions = {
+      host: config.host,
+      port: config.port ?? 1883,
+      clientId: config.serverId, // Use serverId as MQTT client ID
+      ...parseUndefined({
+        username: config.username,
+        password: config.password,
+        clean: config.clean,
+        keepalive: config.keepalive,
+        connectTimeout: config.connectTimeout,
+        reconnectPeriod: config.reconnectPeriod,
+      }),
+      properties: {
+        ...config.properties,
+        userProperties: {
+          'MCP-COMPONENT-TYPE': 'mcp-server',
+          'MCP-META': JSON.stringify({
+            version: config.version,
+            implementation: 'mcp-typescript-sdk',
+            serverName: config.serverName,
+            description: config.description,
+            rbac: config.rbac,
+          }),
+        },
+      },
+    }
 
-    this.mqttAdapter = new UniversalMqttAdapter(config.mqtt)
+    this.mqttAdapter = new UniversalMqttAdapter(mqttOptions)
 
     // Initialize standard MQTT topics
-    const { serverId, serverName } = config.identifiers
+    const { serverId, serverName } = config
     this.topics = {
       control: `$mcp-server/${serverId}/${serverName}`,
       capability: `$mcp-server/capability/${serverId}/${serverName}`,
@@ -90,7 +122,7 @@ export class McpMqttServer extends EventEmitter {
     }
 
     // Set up will message for unexpected disconnection
-    config.mqtt.will = {
+    mqttOptions.will = config.will || {
       topic: this.topics.presence,
       payload: '', // Empty payload to clear presence
       qos: 1,
@@ -100,23 +132,7 @@ export class McpMqttServer extends EventEmitter {
 
   async start(): Promise<void> {
     try {
-      // Set MQTT 5.0 user properties
-      const userProperties = {
-        'MCP-COMPONENT-TYPE': 'mcp-server',
-        'MCP-META': JSON.stringify({
-          version: this.config.serverInfo.version,
-          implementation: 'mcp-typescript-sdk',
-          serverName: this.config.identifiers.serverName,
-          description: this.config.description,
-          rbac: this.config.rbac,
-        }),
-      }
-
-      // Add user properties to connection
-      if (!this.config.mqtt.properties) {
-        this.config.mqtt.properties = {}
-      }
-      this.config.mqtt.properties.userProperties = userProperties
+      // User properties are already set via mqttOptions in constructor
 
       await this.mqttAdapter.connect()
 
@@ -148,7 +164,7 @@ export class McpMqttServer extends EventEmitter {
       retain: true,
       userProperties: {
         'MCP-COMPONENT-TYPE': 'mcp-server',
-        'MCP-MQTT-CLIENT-ID': this.config.identifiers.serverId,
+        'MCP-MQTT-CLIENT-ID': this.config.serverId,
       },
     })
     await this.mqttAdapter.disconnect()
@@ -160,8 +176,8 @@ export class McpMqttServer extends EventEmitter {
       jsonrpc: '2.0',
       method: 'notifications/server/online',
       params: {
-        server_name: this.config.identifiers.serverName,
-        description: this.config.description || `MCP Server: ${this.config.serverInfo.name}`,
+        server_name: this.config.serverName,
+        description: this.config.description || `MCP Server: ${this.config.name}`,
         meta: this.config.rbac ? { rbac: this.config.rbac } : undefined,
       },
     }
@@ -170,7 +186,7 @@ export class McpMqttServer extends EventEmitter {
       retain: true,
       userProperties: {
         'MCP-COMPONENT-TYPE': 'mcp-server',
-        'MCP-MQTT-CLIENT-ID': this.config.identifiers.serverId,
+        'MCP-MQTT-CLIENT-ID': this.config.serverId,
       },
     })
   }
@@ -256,7 +272,7 @@ export class McpMqttServer extends EventEmitter {
     await this.mqttAdapter.publish(this.topics.capability, JSON.stringify(notification), {
       userProperties: {
         'MCP-COMPONENT-TYPE': 'mcp-server',
-        'MCP-MQTT-CLIENT-ID': this.config.identifiers.serverId,
+        'MCP-MQTT-CLIENT-ID': this.config.serverId,
       },
     })
   }
@@ -307,11 +323,11 @@ export class McpMqttServer extends EventEmitter {
       const response = await this.handleInitialize(request, clientId)
 
       // Respond via RPC topic
-      const rpcTopic = `$mcp-rpc/${clientId}/${this.config.identifiers.serverId}/${this.config.identifiers.serverName}`
+      const rpcTopic = `$mcp-rpc/${clientId}/${this.config.serverId}/${this.config.serverName}`
       await this.mqttAdapter.publish(rpcTopic, JSON.stringify(response), {
         userProperties: {
           'MCP-COMPONENT-TYPE': 'mcp-server',
-          'MCP-MQTT-CLIENT-ID': this.config.identifiers.serverId,
+          'MCP-MQTT-CLIENT-ID': this.config.serverId,
         },
       })
 
@@ -366,11 +382,11 @@ export class McpMqttServer extends EventEmitter {
     }
 
     // Send response back via RPC topic
-    const rpcTopic = `$mcp-rpc/${clientId}/${this.config.identifiers.serverId}/${this.config.identifiers.serverName}`
+    const rpcTopic = `$mcp-rpc/${clientId}/${this.config.serverId}/${this.config.serverName}`
     await this.mqttAdapter.publish(rpcTopic, JSON.stringify(response), {
       userProperties: {
         'MCP-COMPONENT-TYPE': 'mcp-server',
-        'MCP-MQTT-CLIENT-ID': this.config.identifiers.serverId,
+        'MCP-MQTT-CLIENT-ID': this.config.serverId,
       },
     })
   }
@@ -426,7 +442,7 @@ export class McpMqttServer extends EventEmitter {
           },
           ...this.config.capabilities,
         },
-        serverInfo: this.config.serverInfo,
+        serverInfo: { name: this.config.name, version: this.config.version },
       })
     } catch (error) {
       throw new McpError(ErrorCode.INVALID_PARAMS, 'Invalid initialize request')

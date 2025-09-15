@@ -1,6 +1,7 @@
 import { EventEmitter } from 'events'
 import type {
   McpMqttClientConfig,
+  MqttConnectionOptions,
   Tool,
   Resource,
   JSONRPCRequest,
@@ -14,7 +15,7 @@ import {
   CallToolRequestSchema,
   ReadResourceRequestSchema,
 } from '../types.js'
-import { UniversalMqttAdapter } from '../shared/mqtt-adapter.js'
+import { UniversalMqttAdapter, parseUndefined } from '../shared/mqtt-adapter.js'
 import { createRequest, generateId, McpError } from '../shared/utils.js'
 
 export interface ServerInfo {
@@ -70,13 +71,38 @@ export class McpMqttClient extends EventEmitter {
     this.config = config
 
     // Generate unique client ID for each initialization
-    this.mcpClientId = config.mqtt.clientId || `mcp-client-${generateId()}`
-    config.mqtt.clientId = this.mcpClientId
+    this.mcpClientId = config.clientId || `mcp-client-${generateId()}`
 
     // Default server name filter (can be overridden by broker)
     this.serverNameFilter = '#' // Subscribe to all servers by default
 
-    this.mqttAdapter = new UniversalMqttAdapter(config.mqtt)
+    // Build MQTT connection options from flat config, filtering undefined values
+    const mqttOptions: MqttConnectionOptions = {
+      host: config.host,
+      port: config.port ?? 1883,
+      clientId: this.mcpClientId,
+      ...parseUndefined({
+        username: config.username,
+        password: config.password,
+        clean: config.clean,
+        keepalive: config.keepalive,
+        connectTimeout: config.connectTimeout,
+        reconnectPeriod: config.reconnectPeriod,
+      }),
+      properties: {
+        ...config.properties,
+        userProperties: {
+          'MCP-COMPONENT-TYPE': 'mcp-client',
+          'MCP-META': JSON.stringify({
+            version: config.version,
+            implementation: 'mcp-typescript-sdk',
+            capabilities: config.capabilities,
+          }),
+        },
+      },
+    }
+
+    this.mqttAdapter = new UniversalMqttAdapter(mqttOptions)
 
     // Set up will message for unexpected disconnection
     const disconnectedNotification: DisconnectedNotification = {
@@ -84,7 +110,7 @@ export class McpMqttClient extends EventEmitter {
       method: 'notifications/disconnected',
     }
 
-    config.mqtt.will = {
+    mqttOptions.will = config.will || {
       topic: `$mcp-client/presence/${this.mcpClientId}`,
       payload: JSON.stringify(disconnectedNotification),
       qos: 1,
@@ -94,20 +120,7 @@ export class McpMqttClient extends EventEmitter {
 
   async connect(): Promise<void> {
     try {
-      // Set MQTT 5.0 user properties
-      const userProperties = {
-        'MCP-COMPONENT-TYPE': 'mcp-client',
-        'MCP-META': JSON.stringify({
-          version: this.config.clientInfo.version,
-          implementation: 'mcp-typescript-sdk',
-          capabilities: this.config.capabilities,
-        }),
-      }
-
-      if (!this.config.mqtt.properties) {
-        this.config.mqtt.properties = {}
-      }
-      this.config.mqtt.properties.userProperties = userProperties
+      // User properties are already set via mqttOptions in constructor
 
       await this.mqttAdapter.connect()
 
@@ -229,7 +242,7 @@ export class McpMqttClient extends EventEmitter {
         },
         sampling: this.config.capabilities?.sampling ?? {},
       },
-      clientInfo: this.config.clientInfo,
+      clientInfo: { name: this.config.name, version: this.config.version },
     })
 
     // Send initialize request to server control topic

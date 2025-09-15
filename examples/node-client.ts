@@ -26,9 +26,13 @@ Examples:
 
 function parseArgs(): McpMqttClientConfig {
   const args = process.argv.slice(2)
-  const config: Partial<McpMqttClientConfig> = {
-    mqtt: { host: 'localhost' },
-    clientInfo: { name: '', version: '' },
+  const config = {
+    host: 'localhost',
+    port: 1883,
+    clientId: undefined as string | undefined,
+    username: undefined as string | undefined,
+    password: undefined as string | undefined,
+    clientName: 'Node MCP Client',
   }
 
   for (let i = 0; i < args.length; i++) {
@@ -43,33 +47,33 @@ function parseArgs(): McpMqttClientConfig {
         break
       case '--host':
         if (!nextArg) throw new Error('--host requires a value')
-        config.mqtt!.host = nextArg
+        config.host = nextArg
         i++
         break
       case '--port':
         if (!nextArg) throw new Error('--port requires a value')
-        config.mqtt!.port = parseInt(nextArg, 10)
-        if (isNaN(config.mqtt!.port!)) throw new Error('--port must be a number')
+        config.port = parseInt(nextArg, 10)
+        if (isNaN(config.port)) throw new Error('--port must be a number')
         i++
         break
       case '--client-id':
         if (!nextArg) throw new Error('--client-id requires a value')
-        config.mqtt!.clientId = nextArg
+        config.clientId = nextArg
         i++
         break
       case '--username':
         if (!nextArg) throw new Error('--username requires a value')
-        config.mqtt!.username = nextArg
+        config.username = nextArg
         i++
         break
       case '--password':
         if (!nextArg) throw new Error('--password requires a value')
-        config.mqtt!.password = nextArg
+        config.password = nextArg
         i++
         break
       case '--client-name':
         if (!nextArg) throw new Error('--client-name requires a value')
-        config.clientInfo!.name = nextArg
+        config.clientName = nextArg
         i++
         break
       default:
@@ -79,22 +83,27 @@ function parseArgs(): McpMqttClientConfig {
     }
   }
 
-  // Set defaults
-  config.mqtt!.host = config.mqtt!.host || 'localhost'
-  config.mqtt!.port = config.mqtt!.port || 1883
-  config.clientInfo!.name = config.clientInfo!.name || 'Node MCP Client'
-  config.clientInfo!.version = '1.0.0'
-
-  // Add required capabilities
+  // Build final configuration matching new structure
   const finalConfig: McpMqttClientConfig = {
-    ...config,
+    // MQTT connection settings
+    host: config.host,
+    port: config.port,
+    clientId: config.clientId,
+    username: config.username,
+    password: config.password,
+
+    // Client information (required)
+    name: config.clientName,
+    version: '1.0.0',
+
+    // Optional configuration
     capabilities: {
       roots: {
         listChanged: false,
       },
       sampling: {},
     },
-  } as McpMqttClientConfig
+  }
 
   return finalConfig
 }
@@ -104,8 +113,8 @@ async function main() {
     const config = parseArgs()
 
     console.log('🚀 Starting MCP over MQTT Client (Node.js)...')
-    console.log(`📡 Client: ${config.clientInfo.name} v${config.clientInfo.version}`)
-    console.log(`🌐 MQTT Broker: ${config.mqtt.host}:${config.mqtt.port}`)
+    console.log(`📡 Client: ${config.name} v${config.version}`)
+    console.log(`🌐 MQTT Broker: ${config.host}:${config.port}`)
 
     const client = new McpMqttClient(config)
 

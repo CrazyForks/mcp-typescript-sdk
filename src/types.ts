@@ -198,15 +198,27 @@ export type ServerOnlineNotification = z.infer<typeof ServerOnlineNotificationSc
 export type DisconnectedNotification = z.infer<typeof DisconnectedNotificationSchema>
 
 export interface McpMqttServerConfig {
-  mqtt: MqttConnectionOptions
-  serverInfo: {
-    name: string
-    version: string
-  }
-  identifiers: {
-    serverId: string // Must be globally unique MQTT Client ID
-    serverName: string // Hierarchical name like "server-type/sub-type/name"
-  }
+  // MQTT connection settings
+  host: string
+  port?: number
+  clientId?: string
+  username?: string
+  password?: string
+  clean?: boolean
+  keepalive?: number
+  connectTimeout?: number
+  reconnectPeriod?: number
+
+  // Server identification (required)
+  serverId: string // Must be globally unique MQTT Client ID
+  serverName: string // Hierarchical name like "server-type/sub-type/name"
+
+  // Server information (required)
+  name: string
+  version: string
+
+  // Optional configuration
+  description?: string // Brief description for service discovery
   capabilities?: {
     logging?: Record<string, any>
     prompts?: {
@@ -220,7 +232,6 @@ export interface McpMqttServerConfig {
       listChanged?: boolean
     }
   }
-  description?: string // Brief description for service discovery
   rbac?: {
     roles: Array<{
       name: string
@@ -230,20 +241,49 @@ export interface McpMqttServerConfig {
       allowed_resources: 'all' | string[]
     }>
   }
+
+  // Advanced MQTT settings (optional)
+  will?: {
+    topic: string
+    payload: string | Buffer
+    qos?: 0 | 1 | 2
+    retain?: boolean
+  }
+  properties?: Record<string, any>
 }
 
 export interface McpMqttClientConfig {
-  mqtt: MqttConnectionOptions
-  clientInfo: {
-    name: string
-    version: string
-  }
+  // MQTT connection settings
+  host: string
+  port?: number
+  clientId?: string
+  username?: string
+  password?: string
+  clean?: boolean
+  keepalive?: number
+  connectTimeout?: number
+  reconnectPeriod?: number
+
+  // Client information (required)
+  name: string
+  version: string
+
+  // Optional configuration
   capabilities?: {
     roots?: {
       listChanged?: boolean
     }
     sampling?: Record<string, any>
   }
+
+  // Advanced MQTT settings (optional)
+  will?: {
+    topic: string
+    payload: string | Buffer
+    qos?: 0 | 1 | 2
+    retain?: boolean
+  }
+  properties?: Record<string, any>
 }
 
 export type Tool = z.infer<typeof ToolSchema>

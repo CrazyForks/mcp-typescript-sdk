@@ -28,18 +28,19 @@ import { McpMqttServer } from '@emqx-ai/mcp-mqtt-sdk'
 
 // Create server instance
 const server = new McpMqttServer({
-  mqtt: {
-    host: 'localhost',
-    port: 1883, // Node.js default; browser uses 8084 with WebSocket
-  },
-  serverInfo: {
-    name: 'My MCP Server',
-    version: '1.0.0',
-  },
-  identifiers: {
-    serverId: 'unique-server-id-123',
-    serverName: 'myapp/greeting-server',  // Hierarchical naming
-  },
+  // MQTT connection
+  host: 'localhost',
+  port: 1883, // Node.js default; browser uses 8084 with WebSocket
+
+  // Server identification
+  serverId: 'unique-server-id-123',
+  serverName: 'myapp/greeting-server',  // Hierarchical naming
+
+  // Server information
+  name: 'My MCP Server',
+  version: '1.0.0',
+
+  // Optional configuration
   description: 'A sample MCP server providing greeting tools',
   capabilities: {
     tools: { listChanged: true },
@@ -124,14 +125,13 @@ import { McpMqttClient } from '@emqx-ai/mcp-mqtt-sdk'
 
 // Create client instance
 const client = new McpMqttClient({
-  mqtt: {
-    host: 'localhost',
-    port: 1883, // Node.js default; browser uses 8084 with WebSocket
-  },
-  clientInfo: {
-    name: 'My MCP Client',
-    version: '1.0.0',
-  },
+  // MQTT connection
+  host: 'localhost',
+  port: 1883, // Node.js default; browser uses 8084 with WebSocket
+
+  // Client information
+  name: 'My MCP Client',
+  version: '1.0.0',
 })
 
 // Set up server discovery handler
@@ -192,16 +192,22 @@ new McpMqttServer(config: McpMqttServerConfig)
 **Configuration:**
 ```typescript
 interface McpMqttServerConfig {
-  mqtt: MqttConnectionOptions
-  serverInfo: {
-    name: string
-    version: string
-  }
-  identifiers: {
-    serverId: string      // Unique server ID (MQTT client ID)
-    serverName: string    // Hierarchical server name (e.g., "app/feature/server")
-  }
-  description: string     // Server description (required)
+  // MQTT connection settings
+  host: string
+  port?: number
+  username?: string
+  password?: string
+
+  // Server identification (required)
+  serverId: string      // Unique server ID (MQTT client ID)
+  serverName: string    // Hierarchical server name (e.g., "app/feature/server")
+
+  // Server information (required)
+  name: string
+  version: string
+
+  // Optional configuration
+  description?: string     // Server description
   capabilities?: {
     prompts?: { listChanged?: boolean }
     resources?: { subscribe?: boolean; listChanged?: boolean }
@@ -319,15 +325,35 @@ new McpMqttClient(config: McpMqttClientConfig)
 **Configuration:**
 ```typescript
 interface McpMqttClientConfig {
-  mqtt: MqttConnectionOptions
-  clientInfo: {
-    name: string
-    version: string
-  };
+  // MQTT connection settings
+  host: string
+  port?: number
+  clientId?: string
+  username?: string
+  password?: string
+  clean?: boolean
+  keepalive?: number
+  connectTimeout?: number
+  reconnectPeriod?: number
+
+  // Client information (required)
+  name: string
+  version: string
+
+  // Optional configuration
   capabilities?: {
     roots?: { listChanged?: boolean }
     sampling?: Record<string, any>
-  };
+  }
+
+  // Advanced MQTT settings (optional)
+  will?: {
+    topic: string
+    payload: string | Buffer
+    qos?: 0 | 1 | 2
+    retain?: boolean
+  }
+  properties?: Record<string, any>
 }
 ```
 

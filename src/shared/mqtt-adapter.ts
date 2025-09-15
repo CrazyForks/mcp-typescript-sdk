@@ -3,7 +3,7 @@ import type { MqttClient, IClientOptions } from 'mqtt'
 import type { MqttConnectionOptions } from '../types.js'
 import { isNode, isBrowser } from './utils.js'
 
-function parseUndefined<T extends Record<string, any>>(obj: T): Partial<T> {
+export function parseUndefined<T extends Record<string, any>>(obj: T): Partial<T> {
   const result: Partial<T> = {}
   for (const [key, value] of Object.entries(obj)) {
     if (value !== undefined) {
