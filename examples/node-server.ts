@@ -16,6 +16,7 @@ Options:
   --username <user>    MQTT username
   --password <pass>    MQTT password
   --server-name <name> Server name (default: Node MCP Server)
+  --server-id <id>     Unique server ID (auto-generated if not provided)
   --help, -h           Show this help message
 
 Examples:
@@ -29,6 +30,7 @@ function parseArgs(): McpMqttServerConfig {
   const config: Partial<McpMqttServerConfig> = {
     mqtt: { host: 'localhost' },
     serverInfo: { name: '', version: '' },
+    identifiers: { serverId: '', serverName: '' },
   }
 
   for (let i = 0; i < args.length; i++) {
@@ -72,6 +74,11 @@ function parseArgs(): McpMqttServerConfig {
         config.serverInfo!.name = nextArg
         i++
         break
+      case '--server-id':
+        if (!nextArg) throw new Error('--server-id requires a value')
+        config.identifiers!.serverId = nextArg
+        i++
+        break
       default:
         if (arg && arg.startsWith('-')) {
           throw new Error(`Unknown option: ${arg}`)
@@ -85,7 +92,27 @@ function parseArgs(): McpMqttServerConfig {
   config.serverInfo!.name = config.serverInfo!.name || 'Node MCP Server'
   config.serverInfo!.version = '1.0.0'
 
-  return config as McpMqttServerConfig
+  // Generate defaults for identifiers
+  const defaultServerName = config.serverInfo!.name!.toLowerCase().replace(/\s+/g, '-')
+  config.identifiers!.serverId = config.identifiers!.serverId || `mcp-server-${Date.now()}`
+  config.identifiers!.serverName = config.identifiers!.serverName || `nodejs/${defaultServerName}`
+
+  // Add required capabilities and description
+  const finalConfig: McpMqttServerConfig = {
+    ...config,
+    description: `A Node.js MCP server providing system tools and environment information`,
+    capabilities: {
+      tools: {
+        listChanged: true,
+      },
+      resources: {
+        listChanged: true,
+        subscribe: false,
+      },
+    },
+  } as McpMqttServerConfig
+
+  return finalConfig
 }
 
 async function main() {
@@ -260,8 +287,8 @@ async function main() {
 
     server.on('ready', () => {
       console.log('✅ Server is ready and listening for requests')
-      console.log(`📋 Request topic: ${server.getTopics().request}`)
-      console.log(`📤 Response topic: ${server.getTopics().response}`)
+      console.log(`📋 RPC topic: ${server.getTopics().rpc}`)
+      console.log(`📤 Control topic: ${server.getTopics().control}`)
       console.log('')
       console.log('Available tools:')
       console.log('  - system-info: Get Node.js system information')
@@ -301,7 +328,8 @@ async function main() {
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+// Only run if this file is being executed directly
+if ((process.argv[1] && process.argv[1].endsWith('node-server.ts')) || process.argv[1]?.endsWith('node-server.js')) {
   main().catch((error) => {
     console.error('❌ Unhandled error:', error)
     process.exit(1)

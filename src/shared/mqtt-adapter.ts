@@ -30,11 +30,13 @@ export interface MqttAdapter {
   on(event: 'message', callback: (topic: string, payload: Buffer, packet?: any) => void): void
   on(event: 'connect' | 'disconnect' | 'error', callback: (...args: any[]) => void): void
   isConnected(): boolean
+  getConnackProperties(): Record<string, any> | undefined
 }
 
 export class UniversalMqttAdapter implements MqttAdapter {
   private client: MqttClient | null = null
   private options: MqttConnectionOptions
+  private connackProperties: Record<string, any> | undefined
 
   constructor(options: MqttConnectionOptions) {
     this.options = options
@@ -96,7 +98,9 @@ export class UniversalMqttAdapter implements MqttAdapter {
 
         this.client = mqtt.connect(url, options)
 
-        this.client.on('connect', () => {
+        this.client.on('connect', (connack) => {
+          // Store CONNACK properties for later access
+          this.connackProperties = connack?.properties
           resolve()
         })
 
@@ -230,5 +234,9 @@ export class UniversalMqttAdapter implements MqttAdapter {
 
   isConnected(): boolean {
     return this.client?.connected ?? false
+  }
+
+  getConnackProperties(): Record<string, any> | undefined {
+    return this.connackProperties
   }
 }

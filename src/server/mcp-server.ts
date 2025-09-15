@@ -120,15 +120,13 @@ export class McpMqttServer extends EventEmitter {
 
       await this.mqttAdapter.connect()
 
-      // Subscribe to server topics according to specification
-      await this.mqttAdapter.subscribe(this.topics.control) // Control messages (initialize)
-      await this.mqttAdapter.subscribe(`$mcp-client/capability/+`) // Client capability changes
-      await this.mqttAdapter.subscribe(`$mcp-client/presence/+`) // Client presence
-      await this.mqttAdapter.subscribe(this.topics.rpcPattern, { nl: true }) // RPC with No Local
-
       this.mqttAdapter.on('message', (topic, payload, packet) => {
         this.handleMessage(topic, payload.toString(), packet)
       })
+
+      // Subscribe to server topics according to specification
+      await this.mqttAdapter.subscribe(this.topics.control) // Control messages (initialize)
+      await this.mqttAdapter.subscribe(this.topics.rpcPattern, { nl: true }) // RPC with No Local
 
       this.mqttAdapter.on('error', (error) => {
         this.emit('error', error)
@@ -146,7 +144,13 @@ export class McpMqttServer extends EventEmitter {
 
   async stop(): Promise<void> {
     // Clear presence before disconnecting
-    await this.mqttAdapter.publish(this.topics.presence, '', { retain: true })
+    await this.mqttAdapter.publish(this.topics.presence, '', {
+      retain: true,
+      userProperties: {
+        'MCP-COMPONENT-TYPE': 'mcp-server',
+        'MCP-MQTT-CLIENT-ID': this.config.identifiers.serverId,
+      },
+    })
     await this.mqttAdapter.disconnect()
     this.emit('closed')
   }
@@ -274,6 +278,12 @@ export class McpMqttServer extends EventEmitter {
         }
       }
 
+      // For control messages, extract client ID from user properties
+      if (topic === this.topics.control) {
+        const userProperties = packet?.properties?.userProperties || {}
+        clientId = userProperties['MCP-MQTT-CLIENT-ID']
+      }
+
       // Handle different message types based on topic
       if (topic === this.topics.control) {
         await this.handleControlMessage(message, clientId)
@@ -305,7 +315,7 @@ export class McpMqttServer extends EventEmitter {
         },
       })
 
-      // Subscribe to client-specific topics after initialization
+      // Subscribe to client-specific topics before responding according to specification
       await this.mqttAdapter.subscribe(`$mcp-client/capability/${clientId}`)
       await this.mqttAdapter.subscribe(`$mcp-client/presence/${clientId}`)
 

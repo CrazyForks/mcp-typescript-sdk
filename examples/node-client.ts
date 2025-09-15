@@ -85,7 +85,18 @@ function parseArgs(): McpMqttClientConfig {
   config.clientInfo!.name = config.clientInfo!.name || 'Node MCP Client'
   config.clientInfo!.version = '1.0.0'
 
-  return config as McpMqttClientConfig
+  // Add required capabilities
+  const finalConfig: McpMqttClientConfig = {
+    ...config,
+    capabilities: {
+      roots: {
+        listChanged: false,
+      },
+      sampling: {},
+    },
+  } as McpMqttClientConfig
+
+  return finalConfig
 }
 
 async function main() {
@@ -100,19 +111,19 @@ async function main() {
 
     let connectedServers: Set<string> = new Set()
 
-    client.onServerDiscovered(async (server) => {
-      console.log(`🔍 Discovered server: ${server.name}`)
+    client.on('serverDiscovered', async (server) => {
+      console.log(`🔍 Discovered server: ${server.name} (ID: ${server.serverId})`)
 
       try {
         console.log(`🔌 Connecting to server: ${server.name}...`)
-        await client.connectToServer(server.name)
-        connectedServers.add(server.name)
+        await client.initializeServer(server.serverId)
+        connectedServers.add(server.serverId)
 
         console.log(`✅ Connected to server: ${server.name}`)
 
         // List and call tools
         console.log(`📋 Listing tools for ${server.name}...`)
-        const tools = await client.listTools(server.name)
+        const tools = await client.listTools(server.serverId)
 
         if (tools.length > 0) {
           console.log(`🔧 Available tools (${tools.length}):`)
@@ -121,14 +132,14 @@ async function main() {
           })
 
           // Test Node.js specific tools
-          await testNodeTools(client, server.name, tools)
+          await testNodeTools(client, server.serverId, tools)
         } else {
           console.log(`📋 No tools available on ${server.name}`)
         }
 
         // List and read resources
         console.log(`📚 Listing resources for ${server.name}...`)
-        const resources = await client.listResources(server.name)
+        const resources = await client.listResources(server.serverId)
 
         if (resources.length > 0) {
           console.log(`📄 Available resources (${resources.length}):`)
@@ -137,7 +148,7 @@ async function main() {
           })
 
           // Test Node.js specific resources
-          await testNodeResources(client, server.name, resources)
+          await testNodeResources(client, server.serverId, resources)
         } else {
           console.log(`📚 No resources available on ${server.name}`)
         }
@@ -182,14 +193,14 @@ async function main() {
   }
 }
 
-async function testNodeTools(client: any, serverName: string, tools: any[]) {
-  console.log(`🧪 Testing Node.js tools on ${serverName}...`)
+async function testNodeTools(client: any, serverId: string, tools: any[]) {
+  console.log(`🧪 Testing Node.js tools on server ${serverId}...`)
 
   // Test system-info tool
   const systemInfoTool = tools.find((t) => t.name === 'system-info')
   if (systemInfoTool) {
     try {
-      const result = await client.callTool(serverName, 'system-info', {})
+      const result = await client.callTool(serverId, 'system-info', {})
       const systemInfo = JSON.parse(result.content[0]?.text || '{}')
       console.log(`  ✅ system-info tool: Platform: ${systemInfo.platform}, Node: ${systemInfo.nodeVersion}`)
     } catch (error) {
@@ -201,7 +212,7 @@ async function testNodeTools(client: any, serverName: string, tools: any[]) {
   const fileExistsTool = tools.find((t) => t.name === 'file-exists')
   if (fileExistsTool) {
     try {
-      const result = await client.callTool(serverName, 'file-exists', { path: './package.json' })
+      const result = await client.callTool(serverId, 'file-exists', { path: './package.json' })
       console.log(`  ✅ file-exists tool: ${result.content[0]?.text}`)
     } catch (error) {
       console.log(`  ❌ file-exists tool failed: ${error}`)
@@ -212,7 +223,7 @@ async function testNodeTools(client: any, serverName: string, tools: any[]) {
   const echoTool = tools.find((t) => t.name === 'echo')
   if (echoTool) {
     try {
-      const result = await client.callTool(serverName, 'echo', { message: 'Hello from Node.js client!' })
+      const result = await client.callTool(serverId, 'echo', { message: 'Hello from Node.js client!' })
       console.log(`  ✅ echo tool: ${result.content[0]?.text}`)
     } catch (error) {
       console.log(`  ❌ echo tool failed: ${error}`)
@@ -222,7 +233,7 @@ async function testNodeTools(client: any, serverName: string, tools: any[]) {
   const timeTool = tools.find((t) => t.name === 'time')
   if (timeTool) {
     try {
-      const result = await client.callTool(serverName, 'time', {})
+      const result = await client.callTool(serverId, 'time', {})
       console.log(`  ✅ time tool: ${result.content[0]?.text}`)
     } catch (error) {
       console.log(`  ❌ time tool failed: ${error}`)
@@ -230,14 +241,14 @@ async function testNodeTools(client: any, serverName: string, tools: any[]) {
   }
 }
 
-async function testNodeResources(client: any, serverName: string, resources: any[]) {
-  console.log(`🧪 Testing Node.js resources on ${serverName}...`)
+async function testNodeResources(client: any, serverId: string, resources: any[]) {
+  console.log(`🧪 Testing Node.js resources on server ${serverId}...`)
 
   // Test server:info resource
   const infoResource = resources.find((r) => r.uri === 'server:info')
   if (infoResource) {
     try {
-      const result = await client.readResource(serverName, 'server:info')
+      const result = await client.readResource(serverId, 'server:info')
       console.log(`  ✅ server:info resource:`)
       const info = JSON.parse(result.contents[0]?.text || '{}')
       console.log(`     Server: ${info.name} v${info.version}`)
@@ -252,7 +263,7 @@ async function testNodeResources(client: any, serverName: string, resources: any
   const envResource = resources.find((r) => r.uri === 'process:env')
   if (envResource) {
     try {
-      const result = await client.readResource(serverName, 'process:env')
+      const result = await client.readResource(serverId, 'process:env')
       const env = JSON.parse(result.contents[0]?.text || '{}')
       const envCount = Object.keys(env).length
       console.log(`  ✅ process:env resource: Found ${envCount} environment variables`)
@@ -263,7 +274,8 @@ async function testNodeResources(client: any, serverName: string, resources: any
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+// Only run if this file is being executed directly
+if ((process.argv[1] && process.argv[1].endsWith('node-client.ts')) || process.argv[1]?.endsWith('node-client.js')) {
   main().catch((error) => {
     console.error('❌ Unhandled error:', error)
     process.exit(1)

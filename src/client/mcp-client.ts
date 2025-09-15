@@ -111,13 +111,8 @@ export class McpMqttClient extends EventEmitter {
 
       await this.mqttAdapter.connect()
 
-      // Check for broker-suggested server name filters in CONNACK
-      // This would be handled by the MQTT adapter if it supports MQTT 5.0 properties
-
-      // Subscribe to server discovery and capability topics
-      await this.mqttAdapter.subscribe(`$mcp-server/presence/+/${this.serverNameFilter}`)
-      await this.mqttAdapter.subscribe(`$mcp-server/capability/+/${this.serverNameFilter}`)
-      await this.mqttAdapter.subscribe(`$mcp-rpc/${this.mcpClientId}/+/${this.serverNameFilter}`, { nl: true })
+      // Handle broker-suggested server name filters from CONNACK user properties
+      this.handleBrokerSuggestions()
 
       this.mqttAdapter.on('message', (topic, payload, packet) => {
         this.handleMessage(topic, payload.toString(), packet)
@@ -126,6 +121,11 @@ export class McpMqttClient extends EventEmitter {
       this.mqttAdapter.on('error', (error) => {
         this.emit('error', error)
       })
+
+      // Subscribe to server discovery and capability topics
+      await this.mqttAdapter.subscribe(`$mcp-server/presence/+/${this.serverNameFilter}`)
+      await this.mqttAdapter.subscribe(`$mcp-server/capability/+/${this.serverNameFilter}`)
+      await this.mqttAdapter.subscribe(`$mcp-rpc/${this.mcpClientId}/+/${this.serverNameFilter}`, { nl: true })
 
       // Start server discovery
       await this.discoverServers()
@@ -180,6 +180,34 @@ export class McpMqttClient extends EventEmitter {
 
     await this.mqttAdapter.disconnect()
     this.emit('disconnected')
+  }
+
+  private handleBrokerSuggestions(): void {
+    // Handle broker-suggested server name filters from CONNACK user properties
+    try {
+      const connackProperties = this.mqttAdapter.getConnackProperties()
+      if (connackProperties?.userProperties) {
+        // Handle MCP-SERVER-NAME-FILTERS suggestion
+        const mcpServerNameFilters = connackProperties.userProperties['MCP-SERVER-NAME-FILTERS']
+        if (mcpServerNameFilters) {
+          const filters = JSON.parse(mcpServerNameFilters)
+          if (Array.isArray(filters) && filters.length > 0) {
+            this.serverNameFilter = filters[0] // Use first suggested filter
+            console.log(`Using broker-suggested server name filter: ${this.serverNameFilter}`)
+          }
+        }
+
+        // Handle MCP-RBAC information
+        const mcpRbac = connackProperties.userProperties['MCP-RBAC']
+        if (mcpRbac) {
+          const rbacInfo = JSON.parse(mcpRbac)
+          this.emit('brokerRbacInfo', rbacInfo)
+          console.log('Received broker RBAC information:', rbacInfo)
+        }
+      }
+    } catch (error) {
+      console.warn('Failed to process broker suggestions:', error)
+    }
   }
 
   private async discoverServers(): Promise<void> {
@@ -287,12 +315,34 @@ export class McpMqttClient extends EventEmitter {
     return this.sendRequest(rpcTopic, request, serverId)
   }
 
+  private getRequestTimeout(method: string): number {
+    // Recommended default timeout values per MCP over MQTT specification
+    const timeouts: Record<string, number> = {
+      initialize: 30000,
+      ping: 10000,
+      'roots/list': 30000,
+      'resources/list': 30000,
+      'tools/list': 30000,
+      'prompts/list': 30000,
+      'prompts/get': 30000,
+      'sampling/createMessage': 60000,
+      'resources/read': 30000,
+      'resources/templates/list': 30000,
+      'resources/subscribe': 30000,
+      'tools/call': 60000,
+      'completion/complete': 60000,
+      'logging/setLevel': 30000,
+    }
+    return timeouts[method] || 30000 // Default to 30 seconds
+  }
+
   private async sendRequest(topic: string, request: JSONRPCRequest, serverId?: string): Promise<JSONRPCResponse> {
     return new Promise((resolve, reject) => {
+      const timeoutMs = this.getRequestTimeout(request.method)
       const timeout = setTimeout(() => {
         this.pendingRequests.delete(request.id)
-        reject(new Error(`Request timeout: ${request.method}`))
-      }, 30000) // 30 second timeout
+        reject(new Error(`Request timeout: ${request.method} (${timeoutMs}ms)`))
+      }, timeoutMs)
 
       this.pendingRequests.set(request.id, { resolve, reject, timeout })
 
