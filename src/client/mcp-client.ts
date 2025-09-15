@@ -394,9 +394,7 @@ export class McpMqttClient extends EventEmitter {
     if (parts.length < 4) return
 
     const serverId = parts[2]
-    if (!serverId) return // Guard against undefined serverId
-
-    // const serverName = parts.slice(3).join('/') // Reconstruct hierarchical server name
+    if (!serverId) return
 
     if (!message.trim()) {
       // Empty message means server went offline

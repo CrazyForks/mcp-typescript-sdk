@@ -317,7 +317,12 @@ export class McpMqttServer extends EventEmitter {
   private async handleControlMessage(message: string, clientId?: string): Promise<void> {
     const parsedMessage = JSON.parse(message)
 
-    if (parsedMessage.method === 'initialize' && parsedMessage.id && clientId) {
+    if (
+      parsedMessage.method === 'initialize' &&
+      parsedMessage.id !== undefined &&
+      parsedMessage.id !== null &&
+      clientId
+    ) {
       const request = parsedMessage as InitializeRequest
       const response = await this.handleInitialize(request, clientId)
 
