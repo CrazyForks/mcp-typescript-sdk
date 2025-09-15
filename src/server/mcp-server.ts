@@ -421,7 +421,7 @@ export class McpMqttServer extends EventEmitter {
     }
   }
 
-  private async handleInitialize(request: InitializeRequest, clientId: string): Promise<JSONRPCResponse> {
+  private async handleInitialize(request: InitializeRequest, _clientId: string): Promise<JSONRPCResponse> {
     try {
       InitializeRequestSchema.parse(request)
       this.isInitialized = true

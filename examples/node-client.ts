@@ -308,7 +308,7 @@ Examples:
     console.log(`⏳ Calling tool "${toolName}" on ${server.name}...`)
     try {
       const result = await this.client.callTool(serverId, toolName, args)
-      console.log(`✅ Tool result:`)
+      console.log('✅ Tool result:')
       result.content.forEach((content) => {
         if (content.type === 'text') {
           console.log(content.text)
@@ -317,7 +317,7 @@ Examples:
         }
       })
     } catch (error) {
-      console.error(`❌ Tool execution failed:`, error)
+      console.error('❌ Tool execution failed:', error)
     }
   }
 
@@ -337,7 +337,7 @@ Examples:
     console.log(`⏳ Reading resource "${resourceUri}" from ${server.name}...`)
     try {
       const result = await this.client.readResource(serverId, resourceUri)
-      console.log(`✅ Resource content:`)
+      console.log('✅ Resource content:')
       result.contents.forEach((content) => {
         if (content.type === 'text') {
           console.log(content.text)
@@ -346,7 +346,7 @@ Examples:
         }
       })
     } catch (error) {
-      console.error(`❌ Resource read failed:`, error)
+      console.error('❌ Resource read failed:', error)
     }
   }
 
@@ -389,7 +389,7 @@ Examples:
     }
 
     // Collect parameters if needed
-    let args = {}
+    const args = {}
     if (selectedTool.inputSchema?.properties) {
       console.log('\n📋 This tool requires parameters:')
       const properties = selectedTool.inputSchema.properties
@@ -424,7 +424,7 @@ Examples:
     console.log(`\n⏳ Executing tool "${selectedTool.name}"...`)
     try {
       const result = await this.client.callTool(serverId, selectedTool.name, args)
-      console.log(`\n✅ Tool execution completed:`)
+      console.log('\n✅ Tool execution completed:')
       result.content.forEach((content) => {
         if (content.type === 'text') {
           console.log(content.text)
@@ -433,7 +433,7 @@ Examples:
         }
       })
     } catch (error) {
-      console.error(`\n❌ Tool execution failed:`, error)
+      console.error('\n❌ Tool execution failed:', error)
     }
 
     const continueChoice = await this.askQuestion('\nExecute another tool? (y/n): ')
@@ -464,7 +464,7 @@ async function main() {
     const client = new McpMqttClient(config)
     const interactive = new InteractiveInterface(client)
 
-    let connectedServers: Set<string> = new Set()
+    const connectedServers: Set<string> = new Set()
 
     client.on('serverDiscovered', async (server) => {
       console.log(`🔍 Discovered server: ${server.name} (ID: ${server.serverId})`)

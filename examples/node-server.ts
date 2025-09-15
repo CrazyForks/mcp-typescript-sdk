@@ -117,7 +117,7 @@ function parseArgs(): McpMqttServerConfig {
     version: config.version!,
 
     // Optional configuration
-    description: `A Node.js MCP server providing system tools and environment information`,
+    description: 'A Node.js MCP server providing system tools and environment information',
     capabilities: {
       tools: {
         listChanged: true,

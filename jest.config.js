@@ -1,22 +1,21 @@
 export default {
   preset: 'ts-jest/presets/default-esm',
   extensionsToTreatAsEsm: ['.ts'],
-  globals: {
-    'ts-jest': {
-      useESM: true
-    }
-  },
   testEnvironment: 'node',
-  roots: ['<rootDir>/src'],
+  roots: ['<rootDir>/src', '<rootDir>/test'],
   testMatch: ['**/__tests__/**/*.ts', '**/?(*.)+(spec|test).ts'],
   transform: {
-    '^.+\\.ts$': ['ts-jest', {
-      useESM: true
-    }]
+    '^.+\\.ts$': [
+      'ts-jest',
+      {
+        useESM: true,
+      },
+    ],
   },
-  moduleNameMapping: {
-    '^(\\.{1,2}/.*)\\.js$': '$1'
+  moduleNameMapper: {
+    '^(\\.{1,2}/.*)\\.js$': '$1',
   },
+  transformIgnorePatterns: ['node_modules/(?!(nanoid)/)'],
   collectCoverageFrom: [
     'src/**/*.ts',
     '!src/**/*.d.ts',
@@ -24,8 +23,8 @@ export default {
     '!src/**/*.spec.ts',
     '!src/__mocks__/**',
     '!src/examples/**',
-    '!src/integration-tests/**'
+    '!src/integration-tests/**',
   ],
   coverageDirectory: 'coverage',
-  coverageReporters: ['text', 'lcov', 'html']
-};
+  coverageReporters: ['text', 'lcov', 'html'],
+}

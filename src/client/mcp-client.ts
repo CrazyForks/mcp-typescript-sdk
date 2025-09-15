@@ -349,7 +349,7 @@ export class McpMqttClient extends EventEmitter {
     return timeouts[method] || 30000 // Default to 30 seconds
   }
 
-  private async sendRequest(topic: string, request: JSONRPCRequest, serverId?: string): Promise<JSONRPCResponse> {
+  private async sendRequest(topic: string, request: JSONRPCRequest, _serverId?: string): Promise<JSONRPCResponse> {
     return new Promise((resolve, reject) => {
       const timeoutMs = this.getRequestTimeout(request.method)
       const timeout = setTimeout(() => {
@@ -374,7 +374,7 @@ export class McpMqttClient extends EventEmitter {
     })
   }
 
-  private async handleMessage(topic: string, message: string, packet: any): Promise<void> {
+  private async handleMessage(topic: string, message: string, _packet: any): Promise<void> {
     try {
       if (topic.startsWith('$mcp-server/presence/')) {
         await this.handleServerPresence(topic, message)
@@ -395,7 +395,7 @@ export class McpMqttClient extends EventEmitter {
     const serverId = parts[2]
     if (!serverId) return // Guard against undefined serverId
 
-    const serverName = parts.slice(3).join('/') // Reconstruct hierarchical server name
+    // const serverName = parts.slice(3).join('/') // Reconstruct hierarchical server name
 
     if (!message.trim()) {
       // Empty message means server went offline
