@@ -137,7 +137,6 @@ export const ReadResourceRequestSchema = z.object({
 // MQTT-specific types following official MCP over MQTT specification
 export interface MqttConnectionOptions {
   host: string
-  port?: number
   clientId?: string
   username?: string
   password?: string
@@ -200,7 +199,6 @@ export type DisconnectedNotification = z.infer<typeof DisconnectedNotificationSc
 export interface McpMqttServerConfig {
   // MQTT connection settings
   host: string
-  port?: number
   clientId?: string
   username?: string
   password?: string
@@ -255,7 +253,6 @@ export interface McpMqttServerConfig {
 export interface McpMqttClientConfig {
   // MQTT connection settings
   host: string
-  port?: number
   clientId?: string
   username?: string
   password?: string

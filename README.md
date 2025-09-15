@@ -29,8 +29,7 @@ import { McpMqttServer } from '@emqx-ai/mcp-mqtt-sdk'
 // Create server instance
 const server = new McpMqttServer({
   // MQTT connection
-  host: 'localhost',
-  port: 1883, // Node.js default; browser uses 8084 with WebSocket
+  host: 'mqtt://localhost:1883',
 
   // Server identification
   serverId: 'unique-server-id-123',
@@ -126,8 +125,7 @@ import { McpMqttClient } from '@emqx-ai/mcp-mqtt-sdk'
 // Create client instance
 const client = new McpMqttClient({
   // MQTT connection
-  host: 'localhost',
-  port: 1883, // Node.js default; browser uses 8084 with WebSocket
+  host: 'mqtt://localhost:1883',
 
   // Client information
   name: 'My MCP Client',
@@ -194,7 +192,6 @@ new McpMqttServer(config: McpMqttServerConfig)
 interface McpMqttServerConfig {
   // MQTT connection settings
   host: string
-  port?: number
   username?: string
   password?: string
 
@@ -327,7 +324,6 @@ new McpMqttClient(config: McpMqttClientConfig)
 interface McpMqttClientConfig {
   // MQTT connection settings
   host: string
-  port?: number
   clientId?: string
   username?: string
   password?: string
@@ -410,8 +406,7 @@ The SDK supports comprehensive MQTT connection options:
 
 ```typescript
 interface MqttConnectionOptions {
-  host: string
-  port?: number              // 1883 (Node.js) / 8084 (browser)
+  host: string               // Complete connection URL (e.g., ws://localhost:8083, wss://broker.emqx.io:8084)
   clientId?: string          // Auto-generated if not provided
   username?: string
   password?: string
@@ -419,7 +414,7 @@ interface MqttConnectionOptions {
   keepalive?: number         // Keep-alive interval in seconds
   connectTimeout?: number    // Connection timeout in milliseconds
   reconnectPeriod?: number   // Reconnection period in milliseconds
-  will?: {                    // Last Will Testament
+  will?: {                   // Last Will Testament
     topic: string
     payload: string | Buffer
     qos?: 0 | 1 | 2
@@ -428,19 +423,19 @@ interface MqttConnectionOptions {
 }
 ```
 
-### Environment-Specific Defaults
+### Connection Examples
 
-The SDK automatically detects the runtime environment and applies appropriate defaults:
+The `host` parameter should be a complete connection URL:
 
-#### Browser Environment
-- **Transport**: WebSocket (wss://)
-- **Default Port**: 8084
-- **URL Format**: `wss://host:port/mqtt`
+```typescript
+// WebSocket connections (browser)
+host: 'ws://localhost:8083'
+host: 'wss://broker.emqx.io:8084'
 
-#### Node.js Environment
-- **Transport**: TCP
-- **Default Port**: 1883
-- **URL Format**: `mqtt://host:port`
+// TCP connections (Node.js)
+host: 'mqtt://localhost:1883'
+host: 'mqtts://broker.emqx.io:8883'
+```
 
 ## Advanced Usage
 

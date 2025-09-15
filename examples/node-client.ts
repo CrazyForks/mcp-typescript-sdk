@@ -11,8 +11,8 @@ MCP over MQTT Client (Node.js)
 Usage: node node-client.js [options]
 
 Options:
-  --host <host>        MQTT broker host (default: localhost)
-  --port <port>        MQTT broker port (default: 1883)
+  --host <host>        MQTT broker URL (default: mqtt://localhost:1883)
+
   --client-id <id>     MQTT client ID (auto-generated if not provided)
   --username <user>    MQTT username
   --password <pass>    MQTT password
@@ -21,15 +21,15 @@ Options:
 
 Examples:
   node node-client.js
-  node node-client.js --host mqtt.example.com --port 8883
+  node node-client.js --host mqtt://mqtt.example.com:8883
 `)
 }
 
 function parseArgs(): McpMqttClientConfig {
   const args = process.argv.slice(2)
   const config = {
-    host: 'localhost',
-    port: 1883,
+    host: 'mqtt://localhost:1883',
+
     clientId: undefined as string | undefined,
     username: undefined as string | undefined,
     password: undefined as string | undefined,
@@ -51,12 +51,7 @@ function parseArgs(): McpMqttClientConfig {
         config.host = nextArg
         i++
         break
-      case '--port':
-        if (!nextArg) throw new Error('--port requires a value')
-        config.port = parseInt(nextArg, 10)
-        if (isNaN(config.port)) throw new Error('--port must be a number')
-        i++
-        break
+
       case '--client-id':
         if (!nextArg) throw new Error('--client-id requires a value')
         config.clientId = nextArg
@@ -88,7 +83,7 @@ function parseArgs(): McpMqttClientConfig {
   const finalConfig: McpMqttClientConfig = {
     // MQTT connection settings
     host: config.host,
-    port: config.port,
+
     clientId: config.clientId,
     username: config.username,
     password: config.password,
@@ -459,7 +454,7 @@ async function main() {
 
     console.log('🚀 Starting MCP over MQTT Client (Node.js)...')
     console.log(`📡 Client: ${config.name} v${config.version}`)
-    console.log(`🌐 MQTT Broker: ${config.host}:${config.port}`)
+    console.log(`🌐 MQTT Broker: ${config.host}`)
 
     const client = new McpMqttClient(config)
     const interactive = new InteractiveInterface(client)

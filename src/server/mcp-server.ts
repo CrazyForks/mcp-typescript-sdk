@@ -85,7 +85,6 @@ export class McpMqttServer extends EventEmitter {
     // Build MQTT connection options from flat config, filtering undefined values
     const mqttOptions: MqttConnectionOptions = {
       host: config.host,
-      port: config.port ?? 1883,
       clientId: config.serverId, // Use serverId as MQTT client ID
       ...parseUndefined({
         username: config.username,

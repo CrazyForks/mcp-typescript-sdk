@@ -14,8 +14,8 @@ if ! command -v tsx &> /dev/null && ! command -v ts-node &> /dev/null; then
 fi
 
 # Default parameters
-HOST="localhost"
-PORT="1883"
+HOST="mqtt://localhost:1883"
+
 SERVER_NAME="MCP MQTT Server"
 
 # Parse command line arguments
@@ -25,10 +25,7 @@ while [[ $# -gt 0 ]]; do
             HOST="$2"
             shift 2
             ;;
-        --port)
-            PORT="$2"
-            shift 2
-            ;;
+
         --server-name)
             SERVER_NAME="$2"
             shift 2
@@ -49,8 +46,8 @@ while [[ $# -gt 0 ]]; do
             echo "Usage: $0 [options]"
             echo ""
             echo "Options:"
-            echo "  --host <host>          MQTT broker host (default: localhost)"
-            echo "  --port <port>          MQTT broker port (default: 1883)"
+            echo "  --host <host>          MQTT broker URL (default: mqtt://localhost:1883)"
+
             echo "  --server-name <name>   Server name (default: MCP MQTT Server)"
             echo "  --server-id <id>       Unique server ID (auto-generated if not provided)"
             echo "  --username <user>      MQTT username"
@@ -59,7 +56,7 @@ while [[ $# -gt 0 ]]; do
             echo ""
             echo "Examples:"
             echo "  $0"
-            echo "  $0 --host mqtt.example.com --port 8883"
+            echo "  $0 --host mqtt://mqtt.example.com:8883"
             echo "  $0 --server-name \"Production Server\" --username myuser --password mypass"
             exit 0
             ;;
@@ -78,7 +75,7 @@ else
     CMD="ts-node node-server.ts"
 fi
 
-CMD="$CMD --host $HOST --port $PORT --server-name \"$SERVER_NAME\""
+CMD="$CMD --host $HOST --server-name \"$SERVER_NAME\""
 
 if [ ! -z "$SERVER_ID" ]; then
     CMD="$CMD --server-id $SERVER_ID"
@@ -94,7 +91,7 @@ fi
 
 echo "📡 Server configuration:"
 echo "   Host: $HOST"
-echo "   Port: $PORT"
+
 echo "   Name: $SERVER_NAME"
 if [ ! -z "$SERVER_ID" ]; then
     echo "   Server ID: $SERVER_ID"

@@ -60,20 +60,20 @@ The client will automatically discover the server and enter interactive mode whe
 
 **Server with custom options:**
 ```bash
-node examples/node-server.ts --host localhost --port 1883 --server-name "My Demo Server"
+node examples/node-server.ts --host mqtt://localhost:1883 --server-name "My Demo Server"
 ```
 
 **Client with custom options:**
 ```bash
-node examples/node-client.ts --host localhost --port 1883 --client-name "My Demo Client"
+node examples/node-client.ts --host mqtt://localhost:1883 --client-name "My Demo Client"
 ```
 
 ## Command Line Options
 
 ### Server Options (`node-server.ts`)
 
-- `--host <host>` - MQTT broker host (default: localhost)
-- `--port <port>` - MQTT broker port (default: 1883)
+- `--host <host>` - MQTT broker URL (default: mqtt://localhost:1883)
+
 - `--client-id <id>` - MQTT client ID (auto-generated if not provided)
 - `--username <user>` - MQTT username
 - `--password <pass>` - MQTT password
@@ -82,8 +82,8 @@ node examples/node-client.ts --host localhost --port 1883 --client-name "My Demo
 
 ### Client Options (`node-client.ts`)
 
-- `--host <host>` - MQTT broker host (default: localhost)
-- `--port <port>` - MQTT broker port (default: 1883)
+- `--host <host>` - MQTT broker URL (default: mqtt://localhost:1883)
+
 - `--client-id <id>` - MQTT client ID (auto-generated if not provided)
 - `--username <user>` - MQTT username
 - `--password <pass>` - MQTT password
@@ -96,7 +96,7 @@ node examples/node-client.ts --host localhost --port 1883 --client-name "My Demo
 ```
 🚀 Starting MCP over MQTT Server (Node.js)...
 📡 Server: Node MCP Server v1.0.0
-🌐 MQTT Broker: localhost:1883
+🌐 MQTT Broker: mqtt://localhost:1883
 ✅ Server is ready and listening for requests
 📋 Request topic: mcp/servers/node-mcp-server/requests
 📤 Response topic: mcp/servers/node-mcp-server/responses
@@ -118,7 +118,7 @@ Press Ctrl+C to stop
 ```
 🚀 Starting MCP over MQTT Client (Node.js)...
 📡 Client: Node MCP Client v1.0.0
-🌐 MQTT Broker: localhost:1883
+🌐 MQTT Broker: mqtt://localhost:1883
 🔍 Starting server discovery...
    Make sure to start a server with: node node-server.ts
 🔍 Discovered server: Node MCP Server (ID: server-123)
@@ -314,23 +314,23 @@ node examples/node-client.ts
 
 ### MQTT Broker Requirements
 
-These examples require an MQTT broker running on the specified host and port. You can use:
+These examples require an MQTT broker running on the specified connection URL. You can use:
 
 - **Mosquitto** (local): `mosquitto -p 1883`
 - **EMQX** (local): Docker or native installation
-- **Cloud MQTT brokers**: Update host/port and add authentication
+- **Cloud MQTT brokers**: Update connection URL and add authentication
 
 ### Troubleshooting
 
 **Client can't discover server:**
 - Make sure the MQTT broker is running
-- Verify both client and server use the same MQTT broker host/port
+- Verify both client and server use the same MQTT broker connection URL
 - Check that the server has started successfully
 
 **Connection errors:**
 - Verify MQTT broker is accessible
 - Check authentication credentials if using username/password
-- Ensure no firewall blocking the MQTT port
+- Ensure no firewall blocking the MQTT connection
 
 **Tool/Resource errors:**
 - Check server logs for error details

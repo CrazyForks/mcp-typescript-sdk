@@ -1,13 +1,12 @@
 import mqtt from 'mqtt'
 import type { MqttClient, IClientOptions } from 'mqtt'
 import type { MqttConnectionOptions } from '../types.js'
-import { isNode, isBrowser } from './utils.js'
 
 export function parseUndefined<T extends Record<string, any>>(obj: T): Partial<T> {
-  const result: Partial<T> = {}
+  const result = {} as Partial<T>
   for (const [key, value] of Object.entries(obj)) {
     if (value !== undefined) {
-      (result as any)[key] = value
+      result[key as keyof T] = value
     }
   }
   return result
@@ -43,7 +42,7 @@ export class UniversalMqttAdapter implements MqttAdapter {
   }
 
   private buildMqttOptions(): IClientOptions {
-    const baseOptions: IClientOptions = {
+    return {
       ...parseUndefined({
         clientId: this.options.clientId,
         username: this.options.username,
@@ -61,42 +60,13 @@ export class UniversalMqttAdapter implements MqttAdapter {
         ...this.options.properties,
       },
     }
-
-    // Browser-specific options
-    if (isBrowser()) {
-      return {
-        ...baseOptions,
-        // Use WebSocket transport in browser
-        protocol: 'wss',
-        port: this.options.port ?? 8084,
-      }
-    }
-
-    // Node.js-specific options
-    if (isNode()) {
-      return {
-        ...baseOptions,
-        protocol: 'mqtt',
-        port: this.options.port ?? 1883,
-      }
-    }
-
-    return baseOptions
-  }
-
-  private buildConnectionUrl(): string {
-    const protocol = isBrowser() ? 'wss' : 'mqtt'
-    const port = isBrowser() ? (this.options.port ?? 8084) : (this.options.port ?? 1883)
-    return `${protocol}://${this.options.host}:${port}`
   }
 
   async connect(): Promise<void> {
     return new Promise((resolve, reject) => {
       try {
-        const url = this.buildConnectionUrl()
         const options = this.buildMqttOptions()
-
-        this.client = mqtt.connect(url, options)
+        this.client = mqtt.connect(this.options.host, options)
 
         this.client.on('connect', (connack) => {
           // Store CONNACK properties for later access

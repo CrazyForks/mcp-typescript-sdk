@@ -10,8 +10,8 @@ MCP over MQTT Server (Node.js)
 Usage: node node-server.js [options]
 
 Options:
-  --host <host>        MQTT broker host (default: localhost)
-  --port <port>        MQTT broker port (default: 1883)
+  --host <host>        MQTT broker URL (default: mqtt://localhost:1883)
+
   --client-id <id>     MQTT client ID (auto-generated if not provided)
   --username <user>    MQTT username
   --password <pass>    MQTT password
@@ -21,14 +21,14 @@ Options:
 
 Examples:
   node node-server.js
-  node node-server.js --host mqtt.example.com --port 8883 --server-name "Production Server"
+  node node-server.js --host mqtt://mqtt.example.com:8883 --server-name "Production Server"
 `)
 }
 
 function parseArgs(): McpMqttServerConfig {
   const args = process.argv.slice(2)
   const config: Partial<McpMqttServerConfig> = {
-    host: 'localhost',
+    host: 'mqtt://localhost:1883',
     name: '',
     version: '',
     serverId: '',
@@ -50,12 +50,7 @@ function parseArgs(): McpMqttServerConfig {
         config.host = nextArg
         i++
         break
-      case '--port':
-        if (!nextArg) throw new Error('--port requires a value')
-        config.port = parseInt(nextArg, 10)
-        if (isNaN(config.port!)) throw new Error('--port must be a number')
-        i++
-        break
+
       case '--client-id':
         if (!nextArg) throw new Error('--client-id requires a value')
         config.clientId = nextArg
@@ -89,8 +84,8 @@ function parseArgs(): McpMqttServerConfig {
   }
 
   // Set defaults
-  config.host = config.host || 'localhost'
-  config.port = config.port || 1883
+  config.host = config.host || 'mqtt://localhost:1883'
+
   config.name = config.name || 'Node MCP Server'
   config.version = '1.0.0'
 
@@ -103,7 +98,7 @@ function parseArgs(): McpMqttServerConfig {
   const finalConfig: McpMqttServerConfig = {
     // MQTT connection settings
     host: config.host!,
-    port: config.port,
+
     clientId: config.clientId,
     username: config.username,
     password: config.password,
@@ -138,7 +133,7 @@ async function main() {
 
     console.log('🚀 Starting MCP over MQTT Server (Node.js)...')
     console.log(`📡 Server: ${config.name} v${config.version}`)
-    console.log(`🌐 MQTT Broker: ${config.host}:${config.port}`)
+    console.log(`🌐 MQTT Broker: ${config.host}`)
 
     const server = new McpMqttServer(config)
 

@@ -14,8 +14,8 @@ if ! command -v tsx &> /dev/null && ! command -v ts-node &> /dev/null; then
 fi
 
 # Default parameters
-HOST="localhost"
-PORT="1883"
+HOST="mqtt://localhost:1883"
+
 CLIENT_NAME="MCP MQTT Client"
 
 # Parse command line arguments
@@ -25,10 +25,7 @@ while [[ $# -gt 0 ]]; do
             HOST="$2"
             shift 2
             ;;
-        --port)
-            PORT="$2"
-            shift 2
-            ;;
+
         --client-name)
             CLIENT_NAME="$2"
             shift 2
@@ -45,8 +42,8 @@ while [[ $# -gt 0 ]]; do
             echo "Usage: $0 [options]"
             echo ""
             echo "Options:"
-            echo "  --host <host>          MQTT broker host (default: localhost)"
-            echo "  --port <port>          MQTT broker port (default: 1883)"
+            echo "  --host <host>          MQTT broker URL (default: mqtt://localhost:1883)"
+
             echo "  --client-name <name>   Client name (default: MCP MQTT Client)"
             echo "  --username <user>      MQTT username"
             echo "  --password <pass>      MQTT password"
@@ -54,7 +51,7 @@ while [[ $# -gt 0 ]]; do
             echo ""
             echo "Examples:"
             echo "  $0"
-            echo "  $0 --host mqtt.example.com --port 8883"
+            echo "  $0 --host mqtt://mqtt.example.com:8883"
             echo "  $0 --client-name \"Test Client\" --username myuser --password mypass"
             echo ""
             echo "Note: Make sure to start a server first with ./start-server.sh"
@@ -75,7 +72,7 @@ else
     CMD="ts-node node-client.ts"
 fi
 
-CMD="$CMD --host $HOST --port $PORT --client-name \"$CLIENT_NAME\""
+CMD="$CMD --host $HOST --client-name \"$CLIENT_NAME\""
 
 if [ ! -z "$USERNAME" ]; then
     CMD="$CMD --username $USERNAME"
@@ -87,7 +84,7 @@ fi
 
 echo "📡 Client configuration:"
 echo "   Host: $HOST"
-echo "   Port: $PORT"
+
 echo "   Name: $CLIENT_NAME"
 if [ ! -z "$USERNAME" ]; then
     echo "   User: $USERNAME"
