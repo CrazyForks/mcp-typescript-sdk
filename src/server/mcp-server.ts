@@ -512,6 +512,10 @@ export class McpMqttServer extends EventEmitter {
   getConnectedClients(): string[] {
     return Array.from(this.connectedClients)
   }
+
+  getMqttClient() {
+    return this.mqttAdapter.getClient()
+  }
 }
 
 export function createMcpServer(config: McpMqttServerConfig): McpMqttServer {

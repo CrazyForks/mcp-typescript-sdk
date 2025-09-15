@@ -1,4 +1,5 @@
 import { EventEmitter } from 'events'
+import type { MqttClient } from 'mqtt'
 import type {
   McpMqttClientConfig,
   MqttConnectionOptions,
@@ -499,6 +500,10 @@ export class McpMqttClient extends EventEmitter {
 
   isServerConnected(serverId: string): boolean {
     return this.connectedServers.has(serverId)
+  }
+
+  getMqttClient(): MqttClient | null {
+    return this.mqttAdapter.getClient()
   }
 }
 

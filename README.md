@@ -439,6 +439,18 @@ host: 'mqtts://broker.emqx.io:8883'
 
 ## Advanced Usage
 
+### Accessing Underlying MQTT Client
+
+Both server and client provide `getMqttClient()` method to access the underlying MQTT client for custom pub/sub operations:
+
+```typescript
+const mqttClient = server.getMqttClient() // or client.getMqttClient()
+if (mqttClient) {
+  mqttClient.subscribe('custom/topic', { qos: 1 })
+  mqttClient.publish('custom/topic', 'Hello World')
+}
+```
+
 ### Custom Tool Validation
 
 ```typescript
