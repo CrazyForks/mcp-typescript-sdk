@@ -1,0 +1,23 @@
+{
+  "name": "mcp_typescript_demo",
+  "version": "1.0.0",
+  "description": "",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start:server": "ts-node --esm demo_mcp_server.ts",
+    "start:client": "ts-node --esm demo_mcp_client.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@emqx-ai/mcp-mqtt-sdk": "^0.2.2"
+  },
+  "devDependencies": {
+    "@types/node": "^24.5.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.2"
+  }
+}
