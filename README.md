@@ -2,6 +2,17 @@
 
 A TypeScript SDK for implementing Model Context Protocol (MCP) over MQTT, supporting both browser and Node.js environments with full type safety and automatic environment detection.
 
+## 🎯 Live Demo
+
+See this SDK in action! Check out our **[MCP AI Companion Demo](https://github.com/emqx/mcp-ai-companion-demo)** - a real-world implementation using both Python and TypeScript with this SDK to create an AI agent that can:
+
+- 🎤 Control browser audio/video functionality
+- 😊 Switch facial expressions and emotions
+- 💬 Power interactive conversational experiences
+- 🌐 Demonstrate cross-platform MCP communication
+
+This demo showcases how to build sophisticated AI agents using MCP over MQTT for seamless browser control and interaction.
+
 ## Features
 
 - 🚀 **Universal**: Works seamlessly in browser (WebSocket) and Node.js (TCP) environments
@@ -188,6 +199,7 @@ new McpMqttServer(config: McpMqttServerConfig)
 ```
 
 **Configuration:**
+
 ```typescript
 interface McpMqttServerConfig {
   // MQTT connection settings
@@ -225,6 +237,7 @@ interface McpMqttServerConfig {
 #### Methods
 
 ##### `tool(name, description, inputSchema, handler)`
+
 Register a tool that clients can call.
 
 ```typescript
@@ -265,6 +278,7 @@ server.tool(
 ```
 
 ##### `resource(uri, name, handler, options?)`
+
 Register a resource that clients can read.
 
 ```typescript
@@ -289,6 +303,7 @@ server.resource(
 ```
 
 ##### `start()` / `stop()`
+
 Control server lifecycle.
 
 ```typescript
@@ -297,6 +312,7 @@ await server.stop()   // Gracefully shutdown
 ```
 
 ##### `getTopics()`
+
 Get MQTT topics used by this server.
 
 ```typescript
@@ -313,13 +329,14 @@ server.on('closed', () => console.log('Server closed'))
 
 ### McpMqttClient
 
-#### Constructor
+#### Client Constructor
 
 ```typescript
 new McpMqttClient(config: McpMqttClientConfig)
 ```
 
 **Configuration:**
+
 ```typescript
 interface McpMqttClientConfig {
   // MQTT connection settings
@@ -353,9 +370,10 @@ interface McpMqttClientConfig {
 }
 ```
 
-#### Methods
+#### Client Methods
 
 ##### Connection Management
+
 ```typescript
 await client.connect()           // Connect to MQTT broker and start discovery
 await client.disconnect()        // Disconnect from broker
@@ -363,24 +381,27 @@ await client.initializeServer(serverId)  // Initialize connection to a specific 
 ```
 
 ##### Tool Operations
+
 ```typescript
 const tools = await client.listTools(serverId)
 const result = await client.callTool(serverId, toolName, args)
 ```
 
 ##### Resource Operations
+
 ```typescript
 const resources = await client.listResources(serverId)
 const data = await client.readResource(serverId, uri)
 ```
 
 ##### Discovery
+
 ```typescript
 const discovered = client.getDiscoveredServers()
 const connected = client.getConnectedServers()
 ```
 
-#### Events
+#### Client Events
 
 ```typescript
 client.on('serverDiscovered', (server) => {
@@ -558,25 +579,6 @@ for (const content of stream.contents) {
 }
 ```
 
-## Examples
-
-The SDK includes comprehensive examples in the `examples/` directory:
-
-- **[node-server.ts](examples/node-server.ts)** - Full-featured Node.js MCP server
-  - System information tools
-  - File system tools
-  - Environment and server info resources
-  - Command-line argument parsing
-  - Graceful shutdown handling
-
-- **[node-client.ts](examples/node-client.ts)** - Interactive Node.js MCP client
-  - Server discovery and automatic connection
-  - Interactive command-line interface with help system
-  - Tool browsing, selection, and execution with guided parameter input
-  - Resource listing and reading
-  - Direct command execution (call, read commands)
-  - Error handling and graceful shutdown
-
 ## Development
 
 ```bash
@@ -606,7 +608,7 @@ npm run lint:fix
 
 The SDK follows the official MCP over MQTT specification topic hierarchy:
 
-```
+```text
 MCP over MQTT Topic Structure:
 
 🗂️ Server Topics:
@@ -659,6 +661,7 @@ git push origin main --tags
 ```
 
 The CI will automatically:
+
 - Create a GitHub release
 - Run lint, tests, and build
 - Publish to npm as `@emqx-ai/mcp-mqtt-sdk`
