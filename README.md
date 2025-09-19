@@ -648,23 +648,14 @@ The SDK follows JSON-RPC 2.0 error codes:
 - `-32603`: Internal error
 - `-32000` to `-32099`: Implementation-defined server errors
 
-## Release Process
+## Other Language SDKs
 
-To publish a new version:
+Looking for MCP over MQTT support in other languages?
 
-```bash
-# Update version and create tag
-npm version patch  # or minor, major
-
-# Push changes and tag
-git push origin main --tags
-```
-
-The CI will automatically:
-
-- Create a GitHub release
-- Run lint, tests, and build
-- Publish to npm as `@emqx-ai/mcp-mqtt-sdk`
+- **[Python SDK](https://github.com/emqx/mcp-python-sdk)** - MCP over MQTT implementation for Python
+- **[Erlang SDK](https://github.com/emqx/mcp-mqtt-erl)** - MCP over MQTT implementation for Erlang
+- **[Paho MCP over MQTT](https://github.com/mqtt-ai/paho-mcp-over-mqtt)** - MCP over MQTT implementation in C
+- **[ESP MCP over MQTT](https://github.com/mqtt-ai/esp-mcp-over-mqtt)** - MCP over MQTT for ESP32/embedded devices in C
 
 ## Contributing
 
