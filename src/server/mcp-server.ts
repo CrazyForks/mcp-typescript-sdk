@@ -312,6 +312,7 @@ export class McpMqttServer extends EventEmitter {
     } catch (error) {
       console.error('Failed to handle message:', error)
     }
+    this.emit('message', topic, message, packet)
   }
 
   private async handleControlMessage(message: string, clientId?: string): Promise<void> {
