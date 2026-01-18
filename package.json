@@ -45,6 +45,10 @@
     "llm",
     "typescript"
   ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/emqx/mcp-typescript-sdk"
+  },
   "author": "EMQX Team",
   "license": "Apache-2.0",
   "engines": {
