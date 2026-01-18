@@ -34,8 +34,10 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18.17'
+          node-version: '22'
           registry-url: 'https://registry.npmjs.org'
+      - name: Upgrade npm
+        run: npm install -g npm@latest
       - name: Cache npm modules
         uses: actions/cache@v4
         with:
