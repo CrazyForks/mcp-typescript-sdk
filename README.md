@@ -24,6 +24,10 @@ This demo showcases how to build sophisticated AI agents using MCP over MQTT for
 - 🔍 **Auto Discovery**: Automatic server discovery over MQTT topics
 - 🌍 **Environment Detection**: Automatic browser/Node.js detection with appropriate defaults
 
+## Requirements
+
+- Node.js >= 18
+
 ## Installation
 
 ```bash
