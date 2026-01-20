@@ -5,7 +5,18 @@ jest.mock('nanoid', () => ({
   nanoid: jest.fn(() => 'mock-id-123'),
 }))
 
-import { createRequest, createResponse, createNotification, generateId, McpError } from '../src/shared/utils.js'
+import {
+  createRequest,
+  createResponse,
+  createNotification,
+  generateId,
+  McpError,
+  isRequest,
+  isResponse,
+  isNotification,
+  isNode,
+  isBrowser,
+} from '../src/shared/utils.js'
 import { ErrorCode } from '../src/types.js'
 
 describe('Utils', () => {
@@ -93,6 +104,118 @@ describe('Utils', () => {
       expect(() => {
         throw new McpError(ErrorCode.INTERNAL_ERROR, 'Something went wrong')
       }).toThrow(McpError)
+    })
+
+    it('should serialize to JSON correctly', () => {
+      const error = new McpError(ErrorCode.INVALID_PARAMS, 'Invalid parameters', { field: 'name' })
+      const json = error.toJSON()
+
+      expect(json).toEqual({
+        code: ErrorCode.INVALID_PARAMS,
+        message: 'Invalid parameters',
+        data: { field: 'name' },
+      })
+    })
+
+    it('should serialize to JSON without data when not provided', () => {
+      const error = new McpError(ErrorCode.INTERNAL_ERROR, 'Internal error')
+      const json = error.toJSON()
+
+      expect(json).toEqual({
+        code: ErrorCode.INTERNAL_ERROR,
+        message: 'Internal error',
+      })
+      expect('data' in json).toBe(false)
+    })
+  })
+
+  describe('isRequest', () => {
+    it('should return true for valid request', () => {
+      const request = { jsonrpc: '2.0', id: '123', method: 'test' }
+      expect(isRequest(request)).toBe(true)
+    })
+
+    it('should return false for response', () => {
+      const response = { jsonrpc: '2.0', id: '123', result: {} }
+      expect(isRequest(response)).toBe(false)
+    })
+
+    it('should return false for notification', () => {
+      const notification = { jsonrpc: '2.0', method: 'test' }
+      expect(isRequest(notification)).toBe(false)
+    })
+
+    it('should return false for invalid objects', () => {
+      expect(isRequest(null)).toBe(false)
+      expect(isRequest(undefined)).toBe(false)
+      expect(isRequest({})).toBe(false)
+      expect(isRequest({ jsonrpc: '1.0', id: '1', method: 'test' })).toBe(false)
+    })
+  })
+
+  describe('isResponse', () => {
+    it('should return true for valid response with result', () => {
+      const response = { jsonrpc: '2.0', id: '123', result: { data: 'test' } }
+      expect(isResponse(response)).toBe(true)
+    })
+
+    it('should return true for valid response with error', () => {
+      const response = { jsonrpc: '2.0', id: '123', error: { code: -32600, message: 'Invalid' } }
+      expect(isResponse(response)).toBe(true)
+    })
+
+    it('should return false for request', () => {
+      const request = { jsonrpc: '2.0', id: '123', method: 'test' }
+      expect(isResponse(request)).toBe(false)
+    })
+
+    it('should return false for notification', () => {
+      const notification = { jsonrpc: '2.0', method: 'test' }
+      expect(isResponse(notification)).toBe(false)
+    })
+
+    it('should return false for invalid objects', () => {
+      expect(isResponse(null)).toBe(false)
+      expect(isResponse(undefined)).toBe(false)
+      expect(isResponse({})).toBe(false)
+    })
+  })
+
+  describe('isNotification', () => {
+    it('should return true for valid notification', () => {
+      const notification = { jsonrpc: '2.0', method: 'test' }
+      expect(isNotification(notification)).toBe(true)
+    })
+
+    it('should return true for notification with params', () => {
+      const notification = { jsonrpc: '2.0', method: 'test', params: { key: 'value' } }
+      expect(isNotification(notification)).toBe(true)
+    })
+
+    it('should return false for request', () => {
+      const request = { jsonrpc: '2.0', id: '123', method: 'test' }
+      expect(isNotification(request)).toBe(false)
+    })
+
+    it('should return false for response', () => {
+      const response = { jsonrpc: '2.0', id: '123', result: {} }
+      expect(isNotification(response)).toBe(false)
+    })
+
+    it('should return false for invalid objects', () => {
+      expect(isNotification(null)).toBe(false)
+      expect(isNotification(undefined)).toBe(false)
+      expect(isNotification({})).toBe(false)
+    })
+  })
+
+  describe('Environment detection', () => {
+    it('should detect Node.js environment', () => {
+      expect(isNode()).toBe(true)
+    })
+
+    it('should not detect browser environment in Node.js', () => {
+      expect(isBrowser()).toBe(false)
     })
   })
 })

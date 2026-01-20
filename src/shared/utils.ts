@@ -36,18 +36,20 @@ export function createNotification(method: string, params?: Record<string, any>)
 }
 
 export function isRequest(message: any): message is JSONRPCRequest {
-  return message && typeof message === 'object' && message.jsonrpc === '2.0' && 'method' in message && 'id' in message
+  return Boolean(
+    message && typeof message === 'object' && message.jsonrpc === '2.0' && 'method' in message && 'id' in message,
+  )
 }
 
 export function isResponse(message: any): message is JSONRPCResponse {
-  return (
-    message && typeof message === 'object' && message.jsonrpc === '2.0' && 'id' in message && !('method' in message)
+  return Boolean(
+    message && typeof message === 'object' && message.jsonrpc === '2.0' && 'id' in message && !('method' in message),
   )
 }
 
 export function isNotification(message: any): message is JSONRPCNotification {
-  return (
-    message && typeof message === 'object' && message.jsonrpc === '2.0' && 'method' in message && !('id' in message)
+  return Boolean(
+    message && typeof message === 'object' && message.jsonrpc === '2.0' && 'method' in message && !('id' in message),
   )
 }
 
